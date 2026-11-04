@@ -1,7 +1,7 @@
 // greg-x: posts Greg's tweets to @gregthefrogfun using the OAuth2 tokens saved by the x-auth function
 // in public.x_accounts (handle 'gregthefrogfun'). Refreshes the token when it is within 5 minutes of expiry.
 // OFF until the owner turns on x_enabled. x_mode "approve" posts only approved drafts; "free" posts drafts too.
-// Content filter: no links, politics, real people, financial advice, tickers, smoking or drinking. Max 8 posts a day.
+// Content filter: no links, politics, real people, financial advice, tickers, smoking or drinking. Up to 32 posts a day, at least 44 minutes apart. Writes its own draft when the queue is empty.
 import { cors, db, json, who } from "./auth.ts";
 
 const HANDLE = "gregthefrogfun";
@@ -32,6 +32,25 @@ async function tweet(text: string) {
   return j.data?.id as string;
 }
 
+// Writes one fresh tweet in Greg's voice from what really happened on the island (diary, meter, journal).
+async function draft(): Promise<string | null> {
+  const key = Deno.env.get("ANTHROPIC_API_KEY"); if (!key) return null;
+  const [{ data: st }, { data: d }, { data: recent }] = await Promise.all([
+    db.from("greg_state").select("status_line,wallet_usd,cards_usd").eq("id", 1).maybeSingle(),
+    db.from("greg_diary").select("text").order("created_at", { ascending: false }).limit(12),
+    db.from("greg_posts").select("text").order("created_at", { ascending: false }).limit(15),
+  ]);
+  const pct = (((Number(st?.wallet_usd || 0) + Number(st?.cards_usd || 0)) / 1e6) * 100).toFixed(4);
+  const sys = "You are Greg, an autonomous AI frog on Freg Island chasing $1,000,000. Voice: a funny, dry, sarcastic nerd. Self-aware, deadpan, specific, a little smug about spreadsheets and golf stats. Never hype-bro: never say LFG, champion, tremendous, to the moon, WAGMI. No hashtags, no emojis except at most one frog. No links, tickers, contract addresses, buy/sell advice, politics, real people, alcohol or smoking. No long dashes. Lowercase is fine. Max 220 characters.";
+  const user = `What actually happened on your island lately: ${(d || []).map((x: any) => x.text).join(" | ").slice(0, 1800)}\nMillion meter: ${pct}%. Status: ${st?.status_line || ""}.\nYour last tweets (do NOT repeat their ideas or phrasing): ${(recent || []).map((x: any) => x.text).join(" | ").slice(0, 1800)}\nWrite ONE new tweet about something real from above. Output only the tweet text.`;
+  try {
+    const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" }, body: JSON.stringify({ model: Deno.env.get("GREG_MODEL") ?? "claude-haiku-5-5", max_tokens: 200, thinking: { type: "disabled" }, system: sys, messages: [{ role: "user", content: user }] }), signal: AbortSignal.timeout(20000) });
+    if (!r.ok) return null; const j = await r.json();
+    const t = (j.content ?? []).map((c: any) => c.text || "").join("").replace(/^["']|["']$/g, "").replace(/[\u2013\u2014]/g, ",").trim();
+    return t || null;
+  } catch { return null; }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (!(await who(req))) return json({ error: "owner or cron only" }, 401);
@@ -43,9 +62,17 @@ Deno.serve(async (req) => {
   if (!acct) return json({ ok: false, off: "X account not connected" });
   const since = new Date(Date.now() - 86400000).toISOString();
   const { count } = await db.from("greg_posts").select("id", { count: "exact", head: true }).eq("status", "posted").gte("posted_at", since);
-  if ((count || 0) >= 8) return json({ ok: true, skipped: "daily limit" });
+  if ((count || 0) >= 32) return json({ ok: true, skipped: "daily limit" });
+  const { data: last } = await db.from("greg_posts").select("posted_at").eq("status", "posted").order("posted_at", { ascending: false }).limit(1).maybeSingle();
+  if (!body.force && last?.posted_at && Date.now() - Date.parse(last.posted_at) < 44 * 60e3) return json({ ok: true, skipped: "too soon" });
+  // drafts older than 3 hours are stale: they describe moments that already passed
+  await db.from("greg_posts").update({ status: "rejected", error: "stale draft" }).eq("status", "draft").lt("created_at", new Date(Date.now() - 3 * 3600e3).toISOString());
   const statuses = s.x_mode === "free" ? ["approved", "draft"] : ["approved"];
-  const { data: p } = await db.from("greg_posts").select("*").in("status", statuses).eq("is_demo", false).order("created_at", { ascending: true }).limit(1).maybeSingle();
+  let { data: p } = await db.from("greg_posts").select("*").in("status", statuses).eq("is_demo", false).order("created_at", { ascending: false }).limit(1).maybeSingle();
+  if (!p && s.x_mode === "free") {
+    const t = await draft();
+    if (t) { const ins = await db.from("greg_posts").insert({ text: t.slice(0, 280), status: "draft" }).select().single(); p = ins.data; }
+  }
   if (!p) return json({ ok: true, skipped: "nothing to post" });
   if (!filterPost(p.text)) { await db.from("greg_posts").update({ status: "rejected", error: "blocked by content filter" }).eq("id", p.id); return json({ ok: false, error: "filtered" }); }
   try {
