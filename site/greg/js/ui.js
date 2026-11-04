@@ -1,5 +1,5 @@
 import { createWorld } from "./world3d.js";
-import { store, start, onChange, ask, cheer, cheered, netWorth } from "./data.js";
+import { store, start, onChange, ask, cheer, cheered, netWorth, sb } from "./data.js";
 import { PLACES, esc, ago, usd, GOAL_USD, SUPABASE_URL, X_URL } from "./config.js";
 import * as audio from "./audio.js";
 import { startFlies } from "./flies.js";
@@ -159,7 +159,7 @@ function renderTab() {
   if (tab === "feed") b.innerHTML = feedHTML();
   if (tab === "wishes") b.innerHTML = wishesHTML();
   if (tab === "works") b.innerHTML = worksHTML();
-  if (tab === "money") b.innerHTML = moneyHTML();
+  if (tab === "money") { b.innerHTML = moneyHTML(); loadTrades().then((ch) => { if (ch && curTabIs("money")) { const t = document.getElementById("gtrades"); if (t) t.innerHTML = tradesHTML(); } }); }
   if (tab === "mail") b.innerHTML = mailHTML();
   bindBody();
 }
@@ -188,13 +188,28 @@ function worksHTML() {
   const tools = worksSeg === "projects" && store.tools.length ? `<div class="sec" style="margin-top:14px"><h3>Tools he built for himself</h3>${store.tools.map((t) => `<div class="entry"><div class="meta"><span class="badge ${t.enabled ? "granted" : "off"}">${t.enabled ? "in use" : "off"}</span>used ${t.uses} times</div><p><b>${esc(t.name)}</b>: ${esc(t.purpose || "")}</p></div>`).join("")}</div>` : "";
   return `<div class="seg"><button data-seg="gallery" aria-pressed="${worksSeg === "gallery"}">Gallery</button><button data-seg="jams" aria-pressed="${worksSeg === "jams"}">Jams</button><button data-seg="projects" aria-pressed="${worksSeg === "projects"}">Projects</button></div>${list.length ? inner : '<div class="empty">Nothing here yet. He is working on it.</div>'}${tools}`;
 }
+// Greg's real trades (pump.fun, via the capped trade bot). Paper rows from the dry run are labelled.
+const TR = { trades: [], pos: [], at: 0 };
+async function loadTrades() {
+  if (Date.now() - TR.at < 15000) return false;
+  const [t, p] = await Promise.all([sb.from("greg_trades").select("created_at,side,symbol,amount_usd,pnl_usd,paper,signature,reason,mint").order("created_at", { ascending: false }).limit(15), sb.from("greg_trade_positions").select("symbol,cost_usd,last_value_usd,paper,mint,opened_at").eq("status", "open")]);
+  TR.trades = t.data || []; TR.pos = p.data || []; TR.at = Date.now(); return true;
+}
+const curTabIs = (k) => document.querySelector(`[data-tab="${k}"][aria-selected="true"], [data-tab="${k}"].on`) != null || !!document.getElementById("gtrades");
+function tradesHTML() {
+  const pnl = TR.trades.filter((t) => t.pnl_usd != null && !t.paper).reduce((a, t) => a + Number(t.pnl_usd), 0);
+  const pos = TR.pos.map((p) => { const q = Number(p.last_value_usd) - Number(p.cost_usd); return `<div class="entry"><div class="meta">${p.paper ? '<span class="badge paper">paper</span>' : '<span class="badge live">live</span>'} open ${ago(p.opened_at)}</div><p><b>${esc(p.symbol || "?")}</b> · in ${usd(p.cost_usd)} · now ${p.last_value_usd != null ? usd(p.last_value_usd) : "?"} ${Number.isFinite(q) ? `<span style="color:${q >= 0 ? "#1f9d55" : "#d33"}">(${q >= 0 ? "+" : ""}${usd(q)})</span>` : ""} · <a href="https://pump.fun/coin/${encodeURIComponent(p.mint)}" target="_blank" rel="noopener">pump.fun</a></p></div>`; }).join("");
+  const rows = TR.trades.map((t) => `<div class="entry"><div class="meta">${ago(t.created_at)} · ${t.side}${t.paper ? ' <span class="badge paper">paper</span>' : ""}${t.signature ? ` · <a href="https://solscan.io/tx/${encodeURIComponent(t.signature)}" target="_blank" rel="noopener">tx</a>` : ""}</div><p><b>${esc(t.symbol || "?")}</b> ${usd(t.amount_usd)}${t.pnl_usd != null ? ` · PnL ${Number(t.pnl_usd) >= 0 ? "+" : ""}${usd(t.pnl_usd)}` : ""}</p>${t.reason ? `<p class="muted">"${esc(t.reason)}"</p>` : ""}</div>`).join("");
+  return `${TR.trades.some((t) => !t.paper) ? `<p><b>Realized PnL (live): ${pnl >= 0 ? "+" : ""}${usd(pnl)}</b></p>` : ""}${pos ? `<h3 style="font-family:var(--font-head);font-weight:400;font-size:18px;margin:6px 0">Open positions</h3>${pos}` : ""}${rows || '<div class="empty">No trades yet.</div>'}<p class="disc">Tiny trades inside his owner's hard limits ($5 a trade, $25 a day). Not financial advice. Visitors cannot invest or copy trades here.</p>`;
+}
 function moneyHTML() {
   const st0 = store.state || {}; const nw = { total: realTotal(), sol: Number(st0.wallet_usd || 0), cards: Number(st0.cards_usd || 0) }; const pct = Math.min(100, (nw.total / GOAL_USD) * 100);
   const w = store.wallet;
-  const wallet = w?.address ? `<div class="entry"><div class="meta"><span class="badge ${w.enabled && !w.kill_switch ? "live" : "off"}">${w.enabled && !w.kill_switch ? "active" : "spending off"}</span></div><p style="word-break:break-all"><code>${esc(w.address)}</code></p><p>${w.balance_sol != null ? Number(w.balance_sol).toFixed(3) + " SOL" : "balance pending"}</p><p class="disc">Caps: ${w.per_tx_cap_sol} SOL per purchase, ${w.daily_cap_sol} SOL per day. Bigger moves need his owner's approval.</p></div>` : `<div class="empty">Greg does not have a real wallet yet. Everything below is paper money.</div>`;
+  const wallet = w?.address ? `<div class="entry"><div class="meta"><span class="badge ${w.enabled && !w.kill_switch && w.trade_dry_run === false ? "live" : "off"}">${w.enabled && !w.kill_switch && w.trade_dry_run === false ? "trading on" : w.trade_dry_run ? "trading: dry run" : "trading off"}</span></div><p style="word-break:break-all"><code>${esc(w.address)}</code></p><p>${w.balance_sol != null ? Number(w.balance_sol).toFixed(3) + " SOL" : "balance pending"}</p><p class="disc">Trade caps: $${w.trade_usd ?? 5} a trade, $${w.trade_daily_usd ?? 25} a day, set by his owner.</p></div>` : `<div class="empty">Greg does not have a real wallet yet. Everything below is paper money.</div>`;
   const chain = store.chain.slice(0, 10).map((c) => `<div class="entry"><div class="meta">${ago(c.created_at)} · ${esc(c.kind)}</div><p>${esc(c.note || "")} ${c.amount_sol ? c.amount_sol + " SOL" : ""} ${c.tx_sig ? `<a href="https://solscan.io/tx/${esc(c.tx_sig)}" target="_blank" rel="noopener">tx</a>` : ""}</p></div>`).join("");
   return `<div class="million"><div style="font-weight:900;font-size:13px;letter-spacing:.06em">ROAD TO $1,000,000</div><div class="big">${usd(nw.total)}</div><div class="track"><i style="width:${pct}%"></i></div><div style="font-size:12px;font-weight:800;opacity:.85">SOL ${usd(nw.sol)} + cards ${usd(nw.cards)} · wallet value, live on Solana</div></div>
-  <p class="disc">Real numbers only: the SOL and card values come from Greg's wallet on Solana. Trading is not enabled. Nothing here is financial advice, and visitors cannot invest, bet or earn anything.</p>
+  <p class="disc">Real numbers only: the SOL and card values come from Greg's wallet on Solana. Nothing here is financial advice, and visitors cannot invest, bet or earn anything.</p>
+  <div class="sec"><h3>Greg's trades</h3><div id="gtrades">${tradesHTML()}</div></div>
   <div class="sec"><h3>Greg's cards</h3><div id="binder2" class="cards">${(store.wallet?.cards || []).length ? "" : '<div class="empty">No cards in the wallet yet.</div>'}</div></div>
   <div class="sec"><h3>Greg's wallet</h3>${wallet}${chain ? `<h3 style="font-family:var(--font-head);font-weight:400;font-size:18px;margin:10px 0 6px">On-chain log</h3>${chain}` : ""}</div>`;
 }
