@@ -33,6 +33,6 @@ open(os.path.join(OUT, "robots.txt"), "w").write("User-agent: *\nDisallow: /admi
 open(os.path.join(OUT, "sitemap.xml"), "w").write('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://gregthefrog.fun/</loc></url><url><loc>https://gregthefrog.fun/golf/</loc></url><url><loc>https://gregthefrog.fun/legal/</loc></url></urlset>')
 print("built", OUT)
 
-# root share image alias so gregthefrog.fun/og.png is Greg too
-from PIL import Image
-Image.open(os.path.join(OUT, "assets", "og-greg.jpg")).convert("RGB").save(os.path.join(OUT, "og.png"))
+# root share image alias so gregthefrog.fun/og.jpg is Greg too (no extra dependencies, CI has no PIL)
+import shutil
+shutil.copyfile(os.path.join(OUT, "assets", "og-greg.jpg"), os.path.join(OUT, "og.jpg"))
