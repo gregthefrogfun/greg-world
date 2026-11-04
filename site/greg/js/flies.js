@@ -34,7 +34,7 @@ export function startFlies(world, { input, hud, save, onCount, onRent, onUnpaidN
     disc: mk(new THREE.CircleGeometry(0.06, 16), new THREE.MeshBasicMaterial({ map: discTex, transparent: true, side: THREE.DoubleSide, depthWrite: false }), 2),
     legs: mk(new THREE.CylinderGeometry(0.0022, 0.0018, 0.05, 4).translate(0, -0.025, 0), new THREE.MeshBasicMaterial({ color: 0x15161a }), 6),
     coin: mk(new THREE.CylinderGeometry(0.018, 0.018, 0.005, 10), new THREE.MeshBasicMaterial({ color: 0xffd23f }), 1),
-    shield: mk(new THREE.SphereGeometry(0.11, 12, 8), new THREE.MeshBasicMaterial({ color: 0x9cff6b, transparent: true, opacity: 0.25, depthWrite: false }), 1),
+    shield: mk(new THREE.SphereGeometry(0.1, 16, 10), new THREE.MeshBasicMaterial({ color: 0x9cff6b, transparent: true, opacity: 0.16, depthWrite: false, blending: THREE.AdditiveBlending }), 1),
   };
   const ob = new THREE.Object3D(), M0 = new THREE.Matrix4(), M1 = new THREE.Matrix4(), Q = new THREE.Quaternion(), Qa = new THREE.Quaternion(), E = new THREE.Euler(), V = new THREE.Vector3(), Y = new THREE.Vector3(0, 1, 0), S1 = new THREE.Vector3(FS, FS, FS);
   const tintC = new THREE.Color(), eyeRed = new THREE.Color(0xc0392b), eyeDead = new THREE.Color(0x141218);
@@ -72,7 +72,7 @@ export function startFlies(world, { input, hud, save, onCount, onRent, onUnpaidN
       put(parts.legs, k, L(s * 0.012, -0.014, 0.022 - row * 0.02, rx, 0, rz));
     }
     const coinOn = F.paid ? 1 : 0; put(parts.coin, slot, L(0, 0.06, 0, Math.PI / 2, 0, t * 3, coinOn, coinOn, coinOn)); parts.coin.setColorAt(slot, F.gold ? new THREE.Color(0xffa000) : new THREE.Color(0xffd23f));
-    const sh = F.shield ? 1 + Math.sin(t * 12) * 0.08 : 0; put(parts.shield, slot, L(0, 0, 0, 0, 0, 0, sh, sh, sh));
+    const sh = F.shield ? 1 + Math.sin(t * 6) * 0.04 : 0; put(parts.shield, slot, L(0, 0, 0, 0, 0, 0, sh, sh, sh));
   }
   function commitParts(n) { for (const m of Object.values(parts)) { const per = m.count === 0 && m.instanceMatrix.count / MAXF; m.count = n * (m === parts.eyes || m === parts.wings || m === parts.disc ? 2 : m === parts.legs ? 6 : 1); m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; } }
   // name tags for nearby flies only
@@ -383,6 +383,7 @@ export function startFlies(world, { input, hud, save, onCount, onRent, onUnpaidN
       const before = st.vel.clone(); st.vel.lerp(wish.multiplyScalar(top), k);
       st.brakeK += ((before.length() - st.vel.length() > 0.02 && L0 === 0 ? 1 : 0) - st.brakeK) * Math.min(1, dt * 6);
       if (L0 > 0 || st.vel.lengthSq() > 0.01) hud.done("move");
+      if (L0 > 0 && st.shield > 0 && st.shield < 1.7) st.shield = 0; // spawn protection ends early once you fly off
       // soft auto-avoid: look a little ahead; if a surface is coming fast, slide along it instead of hitting it
       const sp = st.vel.length();
       if (sp > 1.3) { const dir = st.vel.clone().divideScalar(sp); const h = phys.raycast(st.pos, dir, Math.min(1.2, 0.25 + sp * 0.18)); if (h) { const into = st.vel.dot(h.normal); if (into < 0) { st.vel.addScaledVector(h.normal, -into * Math.min(1, dt * 9)); const side = new THREE.Vector3().crossVectors(h.normal, Y); if (side.lengthSq() > 1e-4) st.vel.addScaledVector(side.normalize(), (side.dot(wish) >= 0 ? 1 : -1) * Math.min(0.6, -into) * dt * 4); } } }
@@ -459,6 +460,7 @@ export function startFlies(world, { input, hud, save, onCount, onRent, onUnpaidN
       const nearest = [...others.values()].filter((o) => !o.F.dead && o.F.state !== ST.perch).sort((a, b) => a.F.pos.distanceTo(P0) - b.F.pos.distanceTo(P0)).slice(0, 2);
       remoteVoices.forEach((v, i) => { const o = nearest[i]; if (o && o.F.pos.distanceTo(P0) < 6) { if (v.p.positionX) { v.p.positionX.value = o.F.pos.x; v.p.positionY.value = o.F.pos.y; v.p.positionZ.value = o.F.pos.z; } v.g.gain.setTargetAtTime(on * 0.02, ac.currentTime, 0.1); v.o.frequency.setTargetAtTime(200 + Math.min(80, o.F.speed * 15), ac.currentTime, 0.1); } else v.g.gain.setTargetAtTime(0, ac.currentTime, 0.1); });
     }
+    document.body.classList.toggle("shielded", st.shield > 0 && pov && !third);
     sendState(now);
   });
   function flyMove(dt, wishDir) {
@@ -473,14 +475,42 @@ export function startFlies(world, { input, hud, save, onCount, onRent, onUnpaidN
   }
   let mobileUp = false, mobileDown = false, mobileBoost = false;
   function setPov(v) { pov = v; controls.autoRotate = !pov; controls.autoRotateSpeed = 0.35; if (pov) { controls.enabled = false; qCam.copy(camera.quaternion); } else { controls.enabled = true; camera.up.set(0, 1, 0); world.followObject(null); world.setFollow(true); input.release(); } }
-  // flight mode switch on the controls card: Assisted (default, drone-like) or Skill (left/right wing flapping)
-  { const card = document.querySelector(".gcard header"); if (card) { const b = document.createElement("button"); b.className = "gskill"; const lab = () => (b.textContent = settings.skill ? "Mode: Skill" : "Mode: Assisted"); lab(); b.title = "Assisted: easy hover flight. Skill: flap each wing yourself."; b.onclick = (e) => { e.stopPropagation(); settings.skill = !settings.skill; save.set("settings", settings); lab(); toast && toast(settings.skill ? "Skill mode: Q/R or mouse buttons flap each wing" : "Assisted mode: easy hover flight"); }; card.insertBefore(b, card.lastChild); } }
+  // flight mode: Assisted (default, drone-like) or Skill (flap each wing). Pill on the HUD, K toggles.
+  function setSkill(v, quiet) { settings.skill = v; save.set("settings", settings); hud.setMode(v); if (!quiet) toast && toast(v ? "Skill mode: Q / left click flaps the left wing, R / right click the right. Even rhythm flies straight." : "Assisted mode: WASD flies, the fly hovers by itself."); }
+  hud.onMode = (v) => setSkill(v); input.on("mode", () => setSkill(!settings.skill)); setSkill(!!settings.skill, true);
+  // chat bubbles over a fly for 4 s
+  const bubbles = new Map();
+  function say(id, text) {
+    if (id === sid && pov && !third) return;
+    let b = bubbles.get(id); if (!b) { const cv = document.createElement("canvas"); cv.width = 512; cv.height = 128; b = { sp: new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), transparent: true, depthWrite: false })), cv }; b.sp.scale.set(0.9, 0.225, 1); b.sp.userData.noCollide = true; scene.add(b.sp); bubbles.set(id, b); }
+    const x = b.cv.getContext("2d"); x.clearRect(0, 0, 512, 128); x.fillStyle = "rgba(255,255,255,.95)"; x.strokeStyle = "#141218"; x.lineWidth = 6; x.beginPath(); x.roundRect(4, 4, 504, 100, 26); x.fill(); x.stroke();
+    x.fillStyle = "#141218"; x.font = "800 30px system-ui"; x.textAlign = "center"; const t = text.length > 34 ? text.slice(0, 33) + "…" : text; x.fillText(t, 256, 66); b.sp.material.map.needsUpdate = true; b.until = performance.now() + 4000;
+  }
+  world.onFrame(() => { const now = performance.now(); for (const [id, b] of bubbles) { const pos = id === sid ? st.pos : others.get(id)?.F.pos; b.sp.visible = !!pos && now < b.until; if (b.sp.visible) b.sp.position.set(pos.x, pos.y + 0.17, pos.z); } });
+  function setName(v) {
+    const taken = new Set(Object.entries(ch?.presenceState() || {}).filter(([k]) => k !== sid).map(([, p]) => String(p[0]?.n || "").toLowerCase()));
+    let n = v, k = 2; while (taken.has(n.toLowerCase())) n = (v.slice(0, 13) + " " + k++).trim();
+    me.name = n; try { localStorage.setItem("greg_fly", JSON.stringify(me)); } catch {} save.set("named", 1);
+    try { ch?.track({ n: me.name, h: me.hue, ts: joinTs }); } catch {}
+    toast && toast("You are " + n);
+  }
+  const rename = () => hud.askName(me.name, setName);
+  if (!save.get("named", 0)) rename();
+  world.setPickGate(() => !pov);
+  // map hooks: other flies as dots, and a guide arrow toward a place picked on the map
+  hud.others = () => [...others.values()].map((o) => o.F.pos);
+  const guide = new THREE.Group(); guide.visible = false; camera.add(guide);
+  { const m = new THREE.MeshBasicMaterial({ color: 0xffd23f, depthTest: false, transparent: true, opacity: 0.95 }); const sh = new THREE.Mesh(new THREE.ConeGeometry(0.012, 0.035, 10), m); sh.rotation.x = Math.PI / 2; sh.renderOrder = 60; guide.add(sh); }
+  guide.position.set(0, 0.045, -0.2); let guideTo = null, guideName = "";
+  hud.onGuide = (h) => { guideTo = new THREE.Vector3(h.px, 1, h.pz); guideName = h.name; toast && toast("Follow the arrow to " + h.name); };
+  world.onFrame(() => { if (!guideTo || !pov) { guide.visible = false; return; } const d = Math.hypot(guideTo.x - st.pos.x, guideTo.z - st.pos.z); if (d < 2.2) { guideTo = null; guide.visible = false; toast && toast("You made it: " + guideName); return; } guide.visible = true; guide.lookAt(guideTo.x, st.pos.y, guideTo.z); });
   spawnAtNest(false); setPov(true); qCam.setFromEuler(new THREE.Euler(st.pitch, st.yaw, 0, "YXZ"));
   return {
     markGold: () => {}, me, setPov, isPov: () => pov, payRent, paid, onDeath: (f) => (onDeath = f), state: st, settings,
     setMobile: (k, v) => { if (k === "up") mobileUp = v; if (k === "down") mobileDown = v; if (k === "boost") mobileBoost = v; },
     setSetting: (k, v) => { settings[k] = v; save.set("settings", settings); }, perch: () => (st.mode === "perch" ? takeoff() : tryPerch(true)), interact, emote, others, sid, room: () => room,
     // test hooks
+    rename, name: () => me.name, say,
     _perchAt: perchAt, _spawn: spawnAtNest, _onP: onP,
   };
 }
