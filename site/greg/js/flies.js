@@ -97,9 +97,15 @@ export function startFlies(world, { input, hud, save, onCount, onRent, onUnpaidN
       ac = new (window.AudioContext || window.webkitAudioContext)();
       noiseBuf = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate); const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
       const master = ac.createGain(); master.gain.value = 1; master.connect(ac.destination); ac.master = master;
-      const o1 = ac.createOscillator(), o2 = ac.createOscillator(); o1.type = o2.type = "sawtooth"; o1.frequency.value = 200; o2.frequency.value = 203.5;
-      const lp = ac.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 900; const g = ac.createGain(); g.gain.value = 0;
-      o1.connect(lp); o2.connect(lp); lp.connect(g); g.connect(master); o1.start(); o2.start(); buzz = { o1, o2, g };
+      // housefly buzz: ~190 Hz wingbeat (sawtooth + detuned square for harmonics), body resonance band, fast amplitude flutter
+      const o1 = ac.createOscillator(), o2 = ac.createOscillator(); o1.type = "sawtooth"; o2.type = "square"; o1.frequency.value = 190; o2.frequency.value = 191.3;
+      const o2g = ac.createGain(); o2g.gain.value = 0.35;
+      const body = ac.createBiquadFilter(); body.type = "peaking"; body.frequency.value = 1150; body.Q.value = 1.4; body.gain.value = 9;
+      const lp = ac.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 2600;
+      const flutter = ac.createGain(); flutter.gain.value = 0.75; const lfo = ac.createOscillator(); lfo.frequency.value = 23; const lfoG = ac.createGain(); lfoG.gain.value = 0.25; lfo.connect(lfoG); lfoG.connect(flutter.gain);
+      const vib = ac.createOscillator(); vib.frequency.value = 5.3; const vibG = ac.createGain(); vibG.gain.value = 4; vib.connect(vibG); vibG.connect(o1.frequency); vibG.connect(o2.frequency);
+      const g = ac.createGain(); g.gain.value = 0;
+      o1.connect(body); o2.connect(o2g); o2g.connect(body); body.connect(lp); lp.connect(flutter); flutter.connect(g); g.connect(master); o1.start(); o2.start(); lfo.start(); vib.start(); buzz = { o1, o2, g, lfo };
       const n = ac.createBufferSource(); n.buffer = noiseBuf; n.loop = true; const wl = ac.createBiquadFilter(); wl.type = "lowpass"; wl.frequency.value = 500; const wg = ac.createGain(); wg.gain.value = 0; n.connect(wl); wl.connect(wg); wg.connect(master); n.start(); wind = { g: wg, f: wl };
       const rn = ac.createBufferSource(); rn.buffer = noiseBuf; rn.loop = true; const bp = ac.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 2200; bp.Q.value = 0.9; const rg = ac.createGain(); rg.gain.value = 0; rn.connect(bp); bp.connect(rg); rg.connect(master); rn.start(); rubG = rg;
       for (let i = 0; i < 2; i++) { const o = ac.createOscillator(); o.type = "sawtooth"; o.frequency.value = 215 + i * 9; const f = ac.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = 800; const gg = ac.createGain(); gg.gain.value = 0; const p = ac.createPanner(); p.panningModel = "HRTF"; p.distanceModel = "inverse"; p.refDistance = 0.3; p.rolloffFactor = 1.6; o.connect(f); f.connect(gg); gg.connect(p); p.connect(master); o.start(); remoteVoices.push({ o, g: gg, p }); }
@@ -130,7 +136,8 @@ export function startFlies(world, { input, hud, save, onCount, onRent, onUnpaidN
   function spawnAtNest(announce = true) {
     const pts = world.nestSpawns(); const p = pts[Math.floor(Math.random() * pts.length)];
     st.pos.copy(p); for (let k = 0; k < 10 && phys.nearest(st.pos, RAD * 2); k++) st.pos.y += 0.15; st.vel.set(0, 0, 0); st.mode = "fly"; st.up.set(0, 1, 0); st.perchOn = null; st.shield = 2; st.roll = 0; st.tumble = 0;
-    const c = world.nestCenter(); const g = world.gregPos(); st.yaw = Math.atan2(g.x - c.x, g.z - c.z); st.pitch = -0.05;
+    // face away from the pot, toward the plaza (camera yaw: forward is (-sin yaw, -cos yaw))
+    const c = world.nestCenter(); const dx = p.x - c.x, dz = p.z - c.z; st.yaw = Math.atan2(-dx, -dz); st.pitch = -0.12; st.lastYaw = st.yaw; st.camRoll = 0; qCam.setFromEuler(new THREE.Euler(st.pitch, st.yaw, 0, "YXZ"));
     burst(p, 0x9cff6b); blip("pop"); if (announce) send("spawn", { i: sid });
   }
   // particles: spawn pops, bump sparks, steam
@@ -453,14 +460,14 @@ export function startFlies(world, { input, hud, save, onCount, onRent, onUnpaidN
     // audio mix
     if (ac && buzz) {
       const on = soundOn() && st.dead <= 0 ? 1 : 0, spd = st.vel.length(), flying = st.mode !== "perch";
-      const throttle = Math.min(1, spd / 6); buzz.o1.frequency.setTargetAtTime(185 + throttle * 90 + (st.caffeine > 0 ? 20 : 0), ac.currentTime, 0.08); buzz.o2.frequency.setTargetAtTime(188 + throttle * 92, ac.currentTime, 0.08);
+      const throttle = Math.min(1, spd / 6); buzz.o1.frequency.setTargetAtTime(178 + throttle * 70 + (st.caffeine > 0 ? 18 : 0) + Math.sin(t * 1.7) * 3, ac.currentTime, 0.08); buzz.o2.frequency.setTargetAtTime(179.3 + throttle * 71, ac.currentTime, 0.08); buzz.lfo.frequency.setTargetAtTime(18 + Math.random() * 12, ac.currentTime, 0.2);
       buzz.g.gain.setTargetAtTime(on * (flying ? 0.02 + throttle * 0.02 : 0), ac.currentTime, 0.1);
       wind.g.gain.setTargetAtTime(on * Math.min(0.12, spd * spd * 0.003), ac.currentTime, 0.15); wind.f.frequency.setTargetAtTime(300 + spd * 120, ac.currentTime, 0.2);
       rubG.gain.setTargetAtTime(on * (st.rubbing ? 0.035 * (0.6 + 0.4 * Math.abs(Math.sin(t * Math.PI * 7))) : 0), ac.currentTime, 0.02);
       const L = ac.listener; const fw = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion), uw = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
       if (L.positionX) { L.positionX.value = camera.position.x; L.positionY.value = camera.position.y; L.positionZ.value = camera.position.z; L.forwardX.value = fw.x; L.forwardY.value = fw.y; L.forwardZ.value = fw.z; L.upX.value = uw.x; L.upY.value = uw.y; L.upZ.value = uw.z; }
       const nearest = [...others.values()].filter((o) => !o.F.dead && o.F.state !== ST.perch).sort((a, b) => a.F.pos.distanceTo(P0) - b.F.pos.distanceTo(P0)).slice(0, 2);
-      remoteVoices.forEach((v, i) => { const o = nearest[i]; if (o && o.F.pos.distanceTo(P0) < 6) { if (v.p.positionX) { v.p.positionX.value = o.F.pos.x; v.p.positionY.value = o.F.pos.y; v.p.positionZ.value = o.F.pos.z; } v.g.gain.setTargetAtTime(on * 0.02, ac.currentTime, 0.1); v.o.frequency.setTargetAtTime(200 + Math.min(80, o.F.speed * 15), ac.currentTime, 0.1); } else v.g.gain.setTargetAtTime(0, ac.currentTime, 0.1); });
+      remoteVoices.forEach((v, i) => { const o = nearest[i]; if (o && o.F.pos.distanceTo(P0) < 6) { if (v.p.positionX) { v.p.positionX.value = o.F.pos.x; v.p.positionY.value = o.F.pos.y; v.p.positionZ.value = o.F.pos.z; } v.g.gain.setTargetAtTime(on * 0.02, ac.currentTime, 0.1); const rv = o.vel ? -o.vel.dot(o.F.pos.clone().sub(P0).normalize()) : 0; v.o.frequency.setTargetAtTime((185 + Math.min(60, o.F.speed * 12)) * (343 / (343 - rv * 25)), ac.currentTime, 0.1); } else v.g.gain.setTargetAtTime(0, ac.currentTime, 0.1); });
     }
     document.body.classList.toggle("shielded", st.shield > 0 && pov && !third);
     sendState(now);

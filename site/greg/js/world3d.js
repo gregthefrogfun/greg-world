@@ -126,16 +126,25 @@ export function createWorld(canvas, { onReady, lowPower, onPick, onUserOrbit, on
   const sand = new THREE.Mesh(G.cyl(R_ISLAND + 1.4, R_ISLAND + 2, 0.5, 48), toon(0xffffff, tileTex("sand", renderer), { rep: 22 })); sand.position.y = -0.55; isl.add(sand);
   const beachPatch = M(new THREE.CircleGeometry(4.2, 20), 0xf6e2a4, { outline: false }); beachPatch.rotation.x = -Math.PI / 2; at(beachPatch, P.beach.x, 0.02, P.beach.z + 0.8); decal(beachPatch, 1); isl.add(beachPatch);
 
-  // paths: every spot connects to the plaza
-  const pathMat = toon(0xffffff, tileTex("stone", renderer), { rep: 1 });
-  for (const k of Object.keys(P)) {
-    if (k === "plaza") continue;
-    const a = P.plaza, b = P[k]; const len = Math.hypot(b.x - a.x, b.z - a.z);
-    const pg = new THREE.PlaneGeometry(1.4, len); const uv = pg.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setY(i, uv.getY(i) * len / 1.4); const p = new THREE.Mesh(pg, pathMat);
-    p.rotation.x = -Math.PI / 2; p.rotation.z = -Math.atan2(b.x - a.x, b.z - a.z) + Math.PI;
-    p.position.set((a.x + b.x) / 2, 0.02, (a.z + b.z) / 2); decal(p, 2); isl.add(p);
-  }
-  const plaza = new THREE.Mesh(new THREE.CircleGeometry(2.2, 24), pathMat); plaza.rotation.x = -Math.PI / 2; at(plaza, P.plaza.x, 0.025, P.plaza.z); decal(plaza, 3); isl.add(plaza);
+  // paths: ONE painted cobblestone layer (a top-down canvas) so ribbons never overlap or z-fight.
+  // A plaza ring, a ring round the putting green, and gently curved spokes from the plaza edge to every spot.
+  { const SZ = 2048, half = R_ISLAND + 0.6, k = SZ / (2 * half), X = (x) => (x + half) * k, Z = (z) => (z + half) * k;
+    const cv = document.createElement("canvas"); cv.width = cv.height = SZ; const c = cv.getContext("2d");
+    const tile = document.createElement("canvas"); tile.width = tile.height = 96; { const t = tile.getContext("2d"); t.fillStyle = "#b9a58a"; t.fillRect(0, 0, 96, 96); let r = 7; const rr = () => ((r = (r * 16807) % 2147483647) / 2147483647); for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) { const cx = j * 24 + 12 + (i % 2) * 12, cy = i * 24 + 12; t.fillStyle = ["#d8c6a8", "#cdb99a", "#e2d2b6", "#c4ae8e"][(i + j) % 4]; t.strokeStyle = "rgba(60,45,30,.55)"; t.lineWidth = 2.5; t.beginPath(); t.ellipse(cx % 96, cy, 10 + rr() * 1.5, 9 + rr() * 1.5, rr(), 0, 7); t.fill(); t.stroke(); t.fillStyle = "rgba(255,255,255,.18)"; t.beginPath(); t.ellipse((cx % 96) - 3, cy - 3, 4, 3, 0, 0, 7); t.fill(); } }
+    const pat = c.createPattern(tile, "repeat");
+    const W = 1.5 * k; // path width
+    const spokes = [];
+    for (const key of Object.keys(P)) { if (key === "plaza") continue; const b2 = P[key], a2 = P.plaza; const L = Math.hypot(b2.x - a2.x, b2.z - a2.z); const ux = (b2.x - a2.x) / L, uz = (b2.z - a2.z) / L; const s0 = [a2.x + ux * 2.9, a2.z + uz * 2.9]; const mid = [(s0[0] + b2.x) / 2 - uz * L * 0.08, (s0[1] + b2.z) / 2 + ux * L * 0.08]; spokes.push([s0, mid, [b2.x - ux * 1.2, b2.z - uz * 1.2]]); }
+    const trace = () => { c.beginPath(); c.arc(X(P.plaza.x), Z(P.plaza.z), 2.9 * k, 0, 7); for (const [s0, m, e] of spokes) { c.moveTo(X(s0[0]), Z(s0[1])); c.quadraticCurveTo(X(m[0]), Z(m[1]), X(e[0]), Z(e[1])); } };
+    c.lineCap = c.lineJoin = "round";
+    trace(); c.strokeStyle = "rgba(70,55,35,.9)"; c.lineWidth = W + 0.2 * k; c.stroke();          // dark edge
+    trace(); c.strokeStyle = pat; c.lineWidth = W; c.stroke();                                    // cobbles
+    c.beginPath(); c.arc(X(P.green.x), Z(P.green.z), 3.2 * k, 0, 7); c.strokeStyle = "rgba(70,55,35,.9)"; c.lineWidth = 1.3 * k; c.stroke(); c.strokeStyle = pat; c.lineWidth = 1.1 * k; c.stroke();
+    c.beginPath(); c.arc(X(P.plaza.x), Z(P.plaza.z), 2.9 * k, 0, 7); c.fillStyle = pat; c.fill(); c.strokeStyle = "rgba(70,55,35,.9)"; c.lineWidth = 0.2 * k; c.stroke();
+    const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+    const paths = new THREE.Mesh(new THREE.PlaneGeometry(2 * half, 2 * half), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -6 }));
+    paths.material.onBeforeCompile = (sh) => { sh.fragmentShader = sh.fragmentShader.replace("#include <dithering_fragment>", "#include <dithering_fragment>\n gl_FragColor.rgb *= vec3(1.06, 1.0, 0.93);"); };
+    paths.rotation.x = -Math.PI / 2; paths.position.y = 0.02; paths.renderOrder = 2; paths.userData.noCollide = true; isl.add(paths); }
   const fountain = M(G.cyl(0.9, 1.1, 0.5, 14), 0xb9bcc8); at(fountain, P.plaza.x, 0.25, P.plaza.z); isl.add(fountain);
   const fw = M(G.cyl(0.75, 0.75, 0.06, 14), 0x4ab8ff, { outline: false, emissive: 0.2 }); at(fw, P.plaza.x, 0.52, P.plaza.z); isl.add(fw);
 
@@ -1059,7 +1068,7 @@ function buildNest() {
   }
   drawSign(1);
   g.userData.drawSign = drawSign; g.userData.sign = face;
-  g.userData.spawns = Array.from({ length: 10 }, (_, i) => { const a = (i / 10) * Math.PI * 2; return new THREE.Vector3(Math.sin(a) * 0.6, 0.85 + (i % 2) * 0.12, 1.75 + Math.cos(a) * 0.4); });
+  g.userData.spawns = Array.from({ length: 10 }, (_, i) => { const a = (i / 10) * Math.PI * 2; return new THREE.Vector3(Math.sin(a) * 0.7, 1.15 + (i % 2) * 0.12, 2.6 + Math.cos(a) * 0.35); });
   return g;
 }
 
@@ -1172,6 +1181,37 @@ function buildHQ(SC, screenTex, renderer) {
     const vines = [[-3.6, -3.2], [-2.6, -3.3], [1.3, -3.3], [2.7, -3.3], [3.7, -2.0], [3.7, -0.4], [3.7, 2.5], [-3.7, -2.4]];
     for (const [vx, vz] of vines) { const len = 0.8 + rr() * 1.4; for (let i = 0; i < 27 && k < n; i++, k++) { const t = i / 26; d.position.set(vx + Math.sin(t * 6 + vx) * 0.08 + (rr() - 0.5) * 0.12, H - 0.15 - t * len, vz + (rr() - 0.5) * 0.12); d.rotation.set(rr() * 2, rr() * 6, rr() * 2); d.scale.setScalar(0.7 + rr() * 0.6); d.updateMatrix(); iv.setMatrixAt(k, d.matrix); iv.setColorAt(k, new THREE.Color().setHSL(0.28 + rr() * 0.06, 0.55, 0.35 + rr() * 0.12)); } }
     iv.count = k; iv.userData.noCollide = true; g.add(iv); }
+  // ----- exterior: cream siding, gable roof with tiles, trims, a porch with steps, posts, awning and a GREG HQ sign -----
+  { const cream = 0xf1e4c6, trim = 0xffffff, roofC = 0x3b6fb6;
+    const clad = (w, h, x, y, z, ry = 0) => { const m = M(G.box(w, h, 0.05), cream, { ot: 0.5 }); m.position.set(x, y, z); m.rotation.y = ry; g.add(m); };
+    clad(W + 0.1, H, 0, H / 2, -D / 2 - 0.115); clad(D + 0.1, H, W / 2 + 0.115, H / 2, 0, Math.PI / 2);
+    clad(2.4, H, -W / 2 + 1.2, H / 2, D / 2 + 0.115); clad(2.2, H, W / 2 - 1.1, H / 2, D / 2 + 0.115); clad(3.4, H - 2.9, 0.1, 2.9 + (H - 2.9) / 2, D / 2 + 0.115);
+    for (const [x, z] of [[-W / 2, -D / 2], [W / 2, -D / 2], [-W / 2, D / 2], [W / 2, D / 2]]) { const c = M(G.box(0.22, H + 0.1, 0.22), trim, { ot: 0.5 }); c.position.set(x + Math.sign(x) * 0.02, H / 2, z + Math.sign(z) * 0.02); g.add(c); }
+    // door frame
+    for (const sx of [-1.6, 1.8]) { const j = M(G.box(0.14, 2.9, 0.3), trim, { ot: 0.5 }); j.position.set(sx, 1.45, D / 2 + 0.05); g.add(j); }
+    const lin = M(G.box(3.6, 0.16, 0.3), trim, { ot: 0.5 }); lin.position.set(0.1, 2.95, D / 2 + 0.05); g.add(lin);
+    // gable roof (ridge along x) with tile texture
+    const tileTex2 = canvasTex(128, 128, (x) => { for (let r = 0; r < 8; r++) for (let q = 0; q < 8; q++) { x.fillStyle = (r + q) % 3 ? "#3b6fb6" : "#3566a8"; x.beginPath(); x.arc(q * 16 + (r % 2) * 8, r * 16 + 16, 9, Math.PI, 0); x.fill(); x.strokeStyle = "rgba(10,20,50,.45)"; x.lineWidth = 2; x.stroke(); } });
+    tileTex2.wrapS = tileTex2.wrapT = THREE.RepeatWrapping;
+    const rise = 1.6, run = D / 2 + 0.5, slope = Math.hypot(rise, run), ang = Math.atan2(rise, run);
+    for (const sz of [-1, 1]) { const r = new THREE.Mesh(G.box(W + 0.9, 0.16, slope), toon(0xffffff, tileTex2, { rep: 4 })); outline(r, 0.6); r.position.set(0, H + 0.14 + rise / 2, sz * run / 2); r.rotation.x = sz * ang; g.add(r); }
+    const ridge = M(G.cyl(0.11, 0.11, W + 1.0, 8), 0x2a4f8a, { ot: 0.5 }); ridge.rotation.z = Math.PI / 2; ridge.position.set(0, H + 0.2 + rise, 0); g.add(ridge);
+    const gable = new THREE.Shape(); gable.moveTo(-D / 2 - 0.1, 0); gable.lineTo(D / 2 + 0.1, 0); gable.lineTo(0, rise); gable.lineTo(-D / 2 - 0.1, 0);
+    for (const sx of [-1, 1]) { const gm = new THREE.Mesh(new THREE.ShapeGeometry(gable), toon(cream, null, { side: THREE.DoubleSide })); gm.rotation.y = Math.PI / 2; gm.position.set(sx * (W / 2 + 0.12), H + 0.1, 0); g.add(gm);
+      const win = new THREE.Mesh(new THREE.CircleGeometry(0.32, 20), toon(0xffe6a6, null, { emissive: 0.8, side: THREE.DoubleSide })); win.rotation.y = Math.PI / 2; win.position.set(sx * (W / 2 + 0.14), H + 0.75, 0); g.add(win);
+      const wr = M(new THREE.TorusGeometry(0.33, 0.04, 6, 20), trim, { ot: 0.4 }); wr.rotation.y = Math.PI / 2; wr.position.copy(win.position); g.add(wr); }
+    const chim = M(G.box(0.6, 1.6, 0.6), 0xb06a4a); chim.position.set(W / 2 - 1.4, H + 1.3, -1.2); g.add(chim); const chimTop = M(G.box(0.72, 0.12, 0.72), 0x6b3a2a, { ot: 0.4 }); chimTop.position.set(W / 2 - 1.4, H + 2.15, -1.2); g.add(chimTop);
+    // porch: deck, steps, posts, awning, planters, and the sign over the door
+    const deckM = new THREE.Mesh(G.box(4.2, 0.16, 1.6), toon(0xffffff, tileTex("wood", renderer), { rep: 2 })); outline(deckM, 0.5); deckM.position.set(0.1, 0.08, D / 2 + 0.95); g.add(deckM);
+    const step = M(G.box(2.2, 0.08, 0.4), 0xb57a45, { ot: 0.4 }); step.position.set(0.1, 0.04, D / 2 + 1.95); g.add(step);
+    for (const px of [-1.85, 2.05]) { const post = M(G.cyl(0.07, 0.07, 2.7, 8), trim, { ot: 0.4 }); post.position.set(px, 1.35, D / 2 + 1.6); g.add(post); }
+    const awnTex2 = canvasTex(128, 64, (x) => { for (let i = 0; i < 8; i++) { x.fillStyle = i % 2 ? "#fff6e6" : "#2f5db0"; x.fillRect(i * 16, 0, 16, 64); } });
+    const awn = new THREE.Mesh(G.box(4.4, 0.06, 1.8), toon(0xffffff, awnTex2)); outline(awn, 0.5); awn.position.set(0.1, 2.8, D / 2 + 0.95); awn.rotation.x = 0.12; g.add(awn);
+    for (const px of [-1.5, 1.7]) { const pot = M(G.cyl(0.22, 0.17, 0.4, 10), 0xc8633a); pot.position.set(px, 0.36, D / 2 + 1.45); g.add(pot); const bush = M(new THREE.IcosahedronGeometry(0.28, 0), 0x4fae3a); bush.position.set(px, 0.72, D / 2 + 1.45); g.add(bush); }
+    const sTex = canvasTex(512, 128, (x, w, h) => { x.fillStyle = "#13234a"; roundRect(x, 4, 4, w - 8, h - 8, 22); x.fill(); x.strokeStyle = "#e9c46a"; x.lineWidth = 6; x.stroke(); x.fillStyle = "#e9c46a"; x.font = "900 76px Georgia, serif"; x.textAlign = "center"; x.textBaseline = "middle"; x.fillText("GREG HQ", w / 2, h / 2 + 4); });
+    const sg = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 0.55), new THREE.MeshBasicMaterial({ map: sTex })); sg.position.set(0.1, 3.35, D / 2 + 0.15); g.add(sg);
+    // outside lamp by the door
+    const lamp = new THREE.Mesh(G.sph(0.1, 10, 8), toon(0xffe6a6, null, { emissive: 1 })); lamp.position.set(2.3, 2.3, D / 2 + 0.2); g.add(lamp); }
   g.userData.chair = chair; g.userData.mugSteam = mugSteam; g.userData.mug = mug;
   g.userData.interactables = [
     { id: "hq_mug", obj: mug, r: 0.5, prompt: "Sip Greg's coffee", kind: "coffee" },

@@ -135,17 +135,37 @@ export function createHud({ input, save, world }) {
   let mapHits = [];
   function drawMap(me) {
     const x = mctx, W = 520, s = W / 60, cx = W / 2; x.clearRect(0, 0, W, W); mapHits = [];
-    x.fillStyle = "#4fb6d6"; x.beginPath(); x.arc(cx, cx, W / 2, 0, 7); x.fill(); x.fillStyle = "#74c94a"; x.beginPath(); x.arc(cx, cx, (world.R) * s, 0, 7); x.fill();
+    const sx = (v) => cx + v * s;
+    // sea, sand, grass with soft shading, paths
+    const sea = x.createRadialGradient(cx, cx, world.R * s, cx, cx, W / 2); sea.addColorStop(0, "#5cc8e0"); sea.addColorStop(1, "#2f8fbf"); x.fillStyle = sea; x.beginPath(); x.arc(cx, cx, W / 2, 0, 7); x.fill();
+    x.fillStyle = "#f2d38a"; x.beginPath(); x.arc(cx, cx, (world.R + 1.8) * s, 0, 7); x.fill();
+    const gr = x.createRadialGradient(cx - 40, cx - 60, 20, cx, cx, world.R * s); gr.addColorStop(0, "#8fdc5a"); gr.addColorStop(1, "#4fa83f"); x.fillStyle = gr; x.beginPath(); x.arc(cx, cx, world.R * s, 0, 7); x.fill();
+    x.strokeStyle = "rgba(255,255,255,.5)"; x.lineWidth = 2; x.setLineDash([2, 5]); x.beginPath(); x.arc(cx, cx, (world.R + 2.6) * s, 0, 7); x.stroke(); x.setLineDash([]);
+    x.strokeStyle = "#d8c6a8"; x.lineWidth = 6; x.lineCap = "round"; for (const p of Object.values(PLACES)) { x.beginPath(); x.moveTo(sx(PLACES.plaza.x), sx(PLACES.plaza.z)); x.lineTo(sx(p.x), sx(p.z)); x.stroke(); }
+    x.fillStyle = "#d8c6a8"; x.beginPath(); x.arc(sx(PLACES.plaza.x), sx(PLACES.plaza.z), 2.9 * s, 0, 7); x.fill();
+    let tr = 3; const r1 = () => ((tr = (tr * 16807) % 2147483647) / 2147483647); x.fillStyle = "#2f7d33"; for (let i = 0; i < 70; i++) { const a = r1() * 6.28, rr = 13 + r1() * 10; x.beginPath(); x.arc(cx + Math.cos(a) * rr * s, cx + Math.sin(a) * rr * s, 4 + r1() * 3, 0, 7); x.fill(); }
     const info = scheduleInfo(Date.now()), np = PLACES[info.next.place];
-    const pts = routePts(info.now.place, info.next.place) || []; x.setLineDash([6, 6]); x.strokeStyle = "#fff"; x.lineWidth = 3; x.beginPath(); pts.forEach((p, i) => (i ? x.lineTo(cx + p[0] * s, cx + p[1] * s) : x.moveTo(cx + p[0] * s, cx + p[1] * s))); x.stroke(); x.setLineDash([]);
-    x.textAlign = "center";
-    const label = (px, pz, text, col, r = 5, big = false) => { x.fillStyle = col; x.beginPath(); x.arc(cx + px * s, cx + pz * s, r, 0, 7); x.fill(); x.font = (big ? "900 15px" : "800 12px") + " system-ui"; x.lineWidth = 4; x.strokeStyle = "rgba(255,255,255,.85)"; x.strokeText(text, cx + px * s, cx + pz * s - r - 4); x.fillStyle = "#141218"; x.fillText(text, cx + px * s, cx + pz * s - r - 4); mapHits.push({ x: cx + px * s, y: cx + pz * s, name: text, px, pz }); };
-    for (const [k, p] of Object.entries(PLACES)) { const big = ["desk", "bakery", "cafe", "green", "edge", "beach"].includes(k); label(p.x, p.z, NICE[k] || p.label, big ? "#141218" : "rgba(20,18,24,.55)", big ? 6 : 4, big); }
-    const n = world.nestCenter(); label(n.x, n.z, "Fly Nest", "#c8633a", 7, true);
-    if (np) { x.strokeStyle = "#ffd23f"; x.lineWidth = 4; x.beginPath(); x.arc(cx + np.x * s, cx + np.z * s, 12, 0, 7); x.stroke(); x.font = "900 12px system-ui"; x.fillStyle = "#141218"; x.fillText("Greg's next stop", cx + np.x * s, cx + np.z * s + 26); }
-    for (const o of api.others ? api.others() : []) { x.fillStyle = "#ffd23f"; x.strokeStyle = "#141218"; x.lineWidth = 1.5; x.beginPath(); x.arc(cx + o.x * s, cx + o.z * s, 4, 0, 7); x.fill(); x.stroke(); }
-    const g = world.gregPos(); x.fillStyle = "#3ea24a"; x.strokeStyle = "#141218"; x.lineWidth = 3; x.beginPath(); x.arc(cx + g.x * s, cx + g.z * s, 10, 0, 7); x.fill(); x.stroke(); x.fillStyle = "#141218"; x.font = "900 14px system-ui"; x.fillText("Greg", cx + g.x * s, cx + g.z * s + 26);
-    if (me) { x.fillStyle = "#ff5a4a"; x.lineWidth = 2; x.beginPath(); x.arc(cx + me.x * s, cx + me.z * s, 7, 0, 7); x.fill(); x.stroke(); x.fillStyle = "#141218"; x.fillText("You", cx + me.x * s, cx + me.z * s + 22); }
+    const pts = routePts(info.now.place, info.next.place) || []; x.setLineDash([6, 6]); x.strokeStyle = "#fff"; x.lineWidth = 3; x.beginPath(); pts.forEach((p, i) => (i ? x.lineTo(sx(p[0]), sx(p[1])) : x.moveTo(sx(p[0]), sx(p[1])))); x.stroke(); x.setLineDash([]);
+    // markers first, labels after with collision avoidance and leader lines
+    const labels = [];
+    const marker = (px, pz, col, r, stroke) => { x.fillStyle = col; x.beginPath(); x.arc(sx(px), sx(pz), r, 0, 7); x.fill(); if (stroke) { x.strokeStyle = "#141218"; x.lineWidth = 2; x.stroke(); } };
+    for (const [k, p] of Object.entries(PLACES)) { const big = ["desk", "bakery", "cafe", "green", "edge", "beach"].includes(k); marker(p.x, p.z, big ? "#141218" : "rgba(20,18,24,.55)", big ? 5 : 3.5); labels.push({ px: p.x, pz: p.z, text: NICE[k] || p.label, pri: big ? 2 : 1, big }); mapHits.push({ x: sx(p.x), y: sx(p.z), name: NICE[k] || p.label, px: p.x, pz: p.z }); }
+    const n = world.nestCenter(); marker(n.x, n.z, "#c8633a", 6, true); labels.push({ px: n.x, pz: n.z, text: "Fly Nest", pri: 3, big: true }); mapHits.push({ x: sx(n.x), y: sx(n.z), name: "Fly Nest", px: n.x, pz: n.z });
+    if (np) { x.strokeStyle = "#ffd23f"; x.lineWidth = 4; x.beginPath(); x.arc(sx(np.x), sx(np.z), 11, 0, 7); x.stroke(); }
+    for (const o of api.others ? api.others() : []) marker(o.x, o.z, "#ffd23f", 4, true);
+    const g = world.gregPos(); marker(g.x, g.z, "#3ea24a", 9, true); labels.push({ px: g.x, pz: g.z, text: "Greg", pri: 5, big: true, col: "#1d6b2a" });
+    if (me) { marker(me.x, me.z, "#ff5a4a", 6.5, true); labels.push({ px: me.x, pz: me.z, text: "You", pri: 6, big: true, col: "#c0392b" }); }
+    const placed = []; const hit = (r) => placed.some((q) => r.x < q.x + q.w && r.x + r.w > q.x && r.y < q.y + q.h && r.y + r.h > q.y);
+    labels.sort((a, b) => b.pri - a.pri);
+    for (const L of labels) {
+      x.font = (L.big ? "900 13px" : "800 11px") + " system-ui"; const w = x.measureText(L.text).width + 8, h = L.big ? 17 : 15, ax = sx(L.px), az = sx(L.pz);
+      const tries = [[0, -h - 7], [0, 9], [10, -h / 2], [-w - 10, -h / 2], [12, -h - 10], [-w - 12, -h - 10], [12, 10], [-w - 12, 10], [0, -h - 26], [0, 28], [26, -h / 2], [-w - 26, -h / 2]];
+      let r = null; for (const [ox, oy] of tries) { const c0 = { x: ax + (ox === 0 ? -w / 2 : ox), y: az + oy, w, h }; if (!hit(c0)) { r = c0; break; } } if (!r) continue; placed.push(r);
+      const lx = r.x + r.w / 2, ly = r.y + r.h / 2; if (Math.hypot(lx - ax, ly - az) > 22) { x.strokeStyle = "rgba(20,18,24,.6)"; x.lineWidth = 1.2; x.beginPath(); x.moveTo(ax, az); x.lineTo(lx, ly); x.stroke(); }
+      x.fillStyle = "rgba(255,255,255,.88)"; x.beginPath(); x.roundRect(r.x, r.y, r.w, r.h, 6); x.fill(); x.fillStyle = L.col || "#141218"; x.textAlign = "center"; x.textBaseline = "middle"; x.fillText(L.text, lx, ly + 1);
+    }
+    x.textBaseline = "alphabetic";
+    if (np) { x.font = "900 12px system-ui"; x.fillStyle = "#141218"; x.textAlign = "left"; x.fillText("◯ Greg's next stop: " + info.next.label, 14, W - 14); }
   }
   map.querySelector("canvas").addEventListener("click", (e) => {
     const r = e.target.getBoundingClientRect(), mx = ((e.clientX - r.left) / r.width) * 520, my = ((e.clientY - r.top) / r.height) * 520;
