@@ -1,6 +1,6 @@
 // Flight HUD: controls card (keycaps light up while pressed), glowing-E interaction prompt, onboarding hints,
 // 4-part leg/wing indicator, speed lines, "click to fly" hint, mobile joystick + buttons, island map, local save.
-import { CONTROLS, KEYMAP } from "./input.js";
+import { CONTROLS, CONTROLS_SKILL, KEYMAP } from "./input.js";
 import { PLACES, scheduleInfo, routePts, routineState } from "./config.js";
 
 export function createSave() {
@@ -24,11 +24,19 @@ export function createHud({ input, save, world }) {
   const root = el(`<div class="ghud"></div>`); document.body.appendChild(root);
   // controls card
   const keyHtml = (k) => k.split(" / ").map((p) => `<kbd>${p}</kbd>`).join("<i>/</i>");
-  const card = stop(el(`<section class="gcard" aria-label="Controls"><header><b>Controls</b><button class="gx" aria-label="Hide controls">H</button></header><div class="grows">${CONTROLS.map(([k, l]) => `<div class="grow" data-k="${k}">${keyHtml(k)}<span>${l}</span></div>`).join("")}</div></section>`));
+  const card = stop(el(`<section class="gcard" aria-label="Controls"><header><b>Controls</b><button class="gx" aria-label="Hide controls">H</button></header><p class="gtip hide">Keep the rhythm even to fly straight.</p><div class="grows"></div></section>`));
   root.appendChild(card);
-  let cardOpen = save.get("cardOpen", true); const setCard = (v) => { cardOpen = v; card.classList.toggle("closed", !v); save.set("cardOpen", v); };
+  let cardOpen = save.get("cardOpen", true); const setCard = (v) => { cardOpen = v; card.classList.toggle("closed", !v); save.set("cardOpen", v); typeof fitPill === "function" && fitPill(); };
   setCard(cardOpen); card.querySelector(".gx").onclick = () => setCard(!cardOpen); input.on("help", () => toggleHow());
-  const rows = new Map([...card.querySelectorAll(".grow")].map((r) => [r.dataset.k, r]));
+  let rows = new Map(), skill = false;
+  const rowsHtml = (list) => list.map(([k, l]) => `<div class="grow" data-k="${k}">${keyHtml(k)}<span>${l}</span></div>`).join("");
+  function renderRows() { card.querySelector(".grows").innerHTML = rowsHtml(skill ? CONTROLS_SKILL : CONTROLS); card.querySelector(".gtip").classList.toggle("hide", !skill); card.querySelector("header b").textContent = skill ? "Skill controls" : "Controls"; rows = new Map([...card.querySelectorAll(".grow")].map((r) => [r.dataset.k, r])); fitPill(); }
+  function fitPill() { requestAnimationFrame(() => document.documentElement.style.setProperty("--cardh", (card.classList.contains("closed") || getComputedStyle(card).display === "none" ? 40 : card.offsetHeight + 8) + "px")); }
+  renderRows();
+  // mode pill (always visible): Assisted | Skill, K toggles
+  const pill = stop(el(`<div class="gmode" role="group" aria-label="Flight mode"><button data-m="0">✈️ Assisted</button><button data-m="1">🪰 Skill</button></div>`)); root.appendChild(pill);
+  pill.querySelectorAll("button").forEach((b) => (b.onclick = () => api.onMode && api.onMode(b.dataset.m === "1")));
+  function setMode(v) { skill = v; pill.querySelectorAll("button").forEach((b) => b.classList.toggle("on", (b.dataset.m === "1") === v)); renderRows(); }
   // prompt chip (glowing carved-E style), hints, indicator, click-to-fly, speed lines
   const prompt = el(`<div class="gprompt hide"><kbd class="glow">F</kbd><span></span></div>`); root.appendChild(prompt);
   const hint = el(`<div class="ghint hide"></div>`); root.appendChild(hint);
@@ -56,6 +64,7 @@ export function createHud({ input, save, world }) {
     ["Rub", "Rub your hands", "A fly classic. You can do it mid air.", "rub"],
     ["Land", "Land anywhere", "Walls, cups, rooftops, even Greg. Then walk around.", "land"],
     ["👁", "Fly eyes", "See the island the way a fly does.", "eyes"],
+    ["🪰", "Want a challenge?", "Skill mode: flap each wing yourself.", "skill"],
   ] : [
     ["Click", "Click to fly", "Click the world to grab the mouse. Esc gives it back.", "click"],
     ["WASD", "Move", "W forward, S back, A and D sideways. Mouse steers.", "move"],
@@ -63,13 +72,27 @@ export function createHud({ input, save, world }) {
     ["E", "Rub your hands", "Hold E. Works while flying.", "rub"],
     ["C", "Land anywhere", "Walls, cups, rooftops, even Greg. WASD walks, Space takes off.", "land"],
     ["V", "Camera", "Switch between your fly eyes and a view from behind.", "cam"],
+    ["K", "Want a challenge?", "Skill mode: flap each wing yourself. Q and R, or the mouse buttons.", "skill"],
   ];
-  const how = stop(el(`<div class="ghow" role="dialog" aria-label="How to fly"><div class="ghow-in"><h2>How to fly</h2><p class="sub">You are a fly on Greg's island. Here is everything you need.</p><ol>${STEPS.map(([k, t, d, a]) => `<li><div class="demo d-${a}"><kbd class="big">${k.split(" / ").join("</kbd><kbd class=\"big\">")}</kbd><span class="fx"></span></div><b>${t}</b><span>${d}</span></li>`).join("")}</ol><button class="gotit">Got it</button><p class="sub small">Press ${coarse ? "?" : "H or ?"} any time to see this again.</p></div></div>`));
+  const how = stop(el(`<div class="ghow" role="dialog" aria-label="How to fly"><div class="ghow-in"><h2>How to fly</h2><p class="sub">You are a fly on Greg's island. Here is everything you need.</p><ol>${STEPS.map(([k, t, d, a]) => `<li><div class="demo d-${a}"><kbd class="big">${k.split(" / ").join("</kbd><kbd class=\"big\">")}</kbd><span class="fx"></span></div><b>${t}</b><span>${d}</span>${a === "skill" ? `<button class="tryskill">Try it</button>` : ""}</li>`).join("")}</ol><button class="gotit">Got it</button><p class="sub small">Press ${coarse ? "?" : "H or ?"} any time to see this again.</p></div></div>`));
   document.body.appendChild(how);
   function toggleHow(v) { const on = v ?? !how.classList.contains("show"); how.classList.toggle("show", on); if (on) input.release(); }
+  how.querySelector(".tryskill").onclick = () => { toggleHow(false); save.set("howSeen", 1); api.onMode && api.onMode(true); };
   how.querySelector(".gotit").onclick = () => { toggleHow(false); save.set("howSeen", 1); };
   how.addEventListener("click", (e) => { if (e.target === how) toggleHow(false); });
-  if (!save.get("howSeen", 0)) toggleHow(true);
+  // "Name your fly": first visit, before the How to fly intro
+  const NAMES = ["Buzz Lightweight", "Sir Lands-a-Lot", "Wing Commander", "Captain Hover", "Lady Buzzington", "Zoom Zoom", "Fly Guy", "Mister Wiggles", "Sticky Feet", "Professor Buzz", "Crumb Hunter", "Tiny Tornado", "Señor Zip", "Doctor Hum", "Sky Noodle", "Rent Dodger"];
+  const BAD = /(fuck|shit|bitch|cunt|nigg|fag|retard|whore|slut|dick|cock|pussy|rape|nazi|hitler|porn|sex|http|www\.|\.com|\.fun|\.io)/i;
+  const nameOk = (n) => /^[A-Za-z0-9 ]{2,16}$/.test(n) && !BAD.test(n.replace(/\s+/g, "")) && !/^\s*(greg|bit)\s*$/i.test(n) && !/greg ?the ?frog|official|admin|owner/i.test(n);
+  const nameCard = stop(el(`<div class="ghow gname" role="dialog" aria-label="Name your fly"><div class="ghow-in" style="width:min(420px,100%)"><h2>Name your fly</h2><p class="sub">Everyone on the island will see it.</p><div class="nrow"><input maxlength="16" autocomplete="off" spellcheck="false" aria-label="Fly name"><button class="dice" title="Random name">🎲</button></div><p class="nerr"></p><button class="gotit">Spawn</button></div></div>`));
+  document.body.appendChild(nameCard);
+  const nIn = nameCard.querySelector("input"), nErr = nameCard.querySelector(".nerr");
+  nameCard.querySelector(".dice").onclick = () => { nIn.value = NAMES[Math.floor(Math.random() * NAMES.length)]; nErr.textContent = ""; };
+  let nameDone = null;
+  function submitName() { const v = nIn.value.trim().replace(/\s+/g, " "); if (!nameOk(v)) { nErr.textContent = "2 to 16 letters, numbers or spaces. Keep it friendly, and no Greg or Bit."; return; } nameCard.classList.remove("show"); const cb = nameDone; nameDone = null; cb && cb(v); if (!save.get("howSeen", 0)) toggleHow(true); }
+  nameCard.querySelector(".gotit").onclick = submitName; nIn.addEventListener("keydown", (e) => { if (e.key === "Enter") submitName(); e.stopPropagation(); });
+  function askName(current, cb) { nIn.value = current || NAMES[Math.floor(Math.random() * NAMES.length)]; nErr.textContent = ""; nameDone = cb; nameCard.classList.add("show"); input.release(); setTimeout(() => nIn.focus(), 50); }
+  if (!save.get("howSeen", 0) && save.get("named", 0)) toggleHow(true);
   // minimap with Greg's schedule: next stop, countdown, dotted path to it
   const mini = stop(el(`<div class="gmini"><canvas width="240" height="240"></canvas><div class="gsched"><b>Greg's schedule</b><span class="now"></span><span class="nxt"></span></div></div>`)); root.appendChild(mini);
   const mm = mini.querySelector("canvas").getContext("2d");
@@ -104,24 +127,39 @@ export function createHud({ input, save, world }) {
     setCard(save.get("cardOpenMobile", false));
   }
   // island map (M)
-  const map = stop(el(`<div class="gmap hide"><canvas width="520" height="520"></canvas><p>M or Esc to close</p></div>`)); document.body.appendChild(map);
+  const map = stop(el(`<div class="gmap hide"><canvas width="520" height="520"></canvas><p>Tap a place to get a guide arrow · M or Esc to close</p></div>`)); document.body.appendChild(map);
   const mctx = map.querySelector("canvas").getContext("2d");
   input.on("map", () => { mapOpen = !mapOpen; map.classList.toggle("hide", !mapOpen); if (mapOpen) input.release(); });
+  // full island map: named places, Greg live, you, other flies, Greg's next stop; tap a place for a guide arrow
+  const NICE = { desk: "Greg HQ", bakery: "Espresso", cafe: "Web Cafe", green: "Putting green", edge: "Dock", beach: "Beach", plaza: "Plaza", home: "Lily-pad home", rock: "Server rock", shed: "Studio", bench: "Easel", kitchen: "Kitchen", nook: "Reading nook", mailbox: "Fan mail", art: "Art wall", flats: "Fly Flats", gym: "Gym", pitch: "Football pitch", stage: "Stage", hill: "Paper plane hill" };
+  let mapHits = [];
   function drawMap(me) {
-    const x = mctx, W = 520, s = W / 60, cx = W / 2; x.clearRect(0, 0, W, W);
-    x.fillStyle = "#8fe3e6"; x.beginPath(); x.arc(cx, cx, W / 2, 0, 7); x.fill(); x.fillStyle = "#74c94a"; x.beginPath(); x.arc(cx, cx, (world.R) * s, 0, 7); x.fill();
-    x.fillStyle = "#141218"; x.font = "800 13px system-ui"; x.textAlign = "center";
-    for (const [k, p] of Object.entries(PLACES)) { x.beginPath(); x.arc(cx + p.x * s, cx + p.z * s, 4, 0, 7); x.fill(); x.fillText(p.label.replace(/^(his|the) /, ""), cx + p.x * s, cx + p.z * s - 8); }
-    const n = world.nestCenter(); x.fillStyle = "#c8633a"; x.beginPath(); x.arc(cx + n.x * s, cx + n.z * s, 7, 0, 7); x.fill(); x.fillText("Fly Nest", cx + n.x * s, cx + n.z * s + 20);
-    const g = world.gregPos(); x.fillStyle = "#3ea24a"; x.strokeStyle = "#141218"; x.lineWidth = 3; x.beginPath(); x.arc(cx + g.x * s, cx + g.z * s, 9, 0, 7); x.fill(); x.stroke(); x.fillStyle = "#141218"; x.fillText("Greg", cx + g.x * s, cx + g.z * s + 24);
-    if (me) { x.fillStyle = "#ff5a4a"; x.beginPath(); x.arc(cx + me.x * s, cx + me.z * s, 6, 0, 7); x.fill(); x.stroke(); }
+    const x = mctx, W = 520, s = W / 60, cx = W / 2; x.clearRect(0, 0, W, W); mapHits = [];
+    x.fillStyle = "#4fb6d6"; x.beginPath(); x.arc(cx, cx, W / 2, 0, 7); x.fill(); x.fillStyle = "#74c94a"; x.beginPath(); x.arc(cx, cx, (world.R) * s, 0, 7); x.fill();
+    const info = scheduleInfo(Date.now()), np = PLACES[info.next.place];
+    const pts = routePts(info.now.place, info.next.place) || []; x.setLineDash([6, 6]); x.strokeStyle = "#fff"; x.lineWidth = 3; x.beginPath(); pts.forEach((p, i) => (i ? x.lineTo(cx + p[0] * s, cx + p[1] * s) : x.moveTo(cx + p[0] * s, cx + p[1] * s))); x.stroke(); x.setLineDash([]);
+    x.textAlign = "center";
+    const label = (px, pz, text, col, r = 5, big = false) => { x.fillStyle = col; x.beginPath(); x.arc(cx + px * s, cx + pz * s, r, 0, 7); x.fill(); x.font = (big ? "900 15px" : "800 12px") + " system-ui"; x.lineWidth = 4; x.strokeStyle = "rgba(255,255,255,.85)"; x.strokeText(text, cx + px * s, cx + pz * s - r - 4); x.fillStyle = "#141218"; x.fillText(text, cx + px * s, cx + pz * s - r - 4); mapHits.push({ x: cx + px * s, y: cx + pz * s, name: text, px, pz }); };
+    for (const [k, p] of Object.entries(PLACES)) { const big = ["desk", "bakery", "cafe", "green", "edge", "beach"].includes(k); label(p.x, p.z, NICE[k] || p.label, big ? "#141218" : "rgba(20,18,24,.55)", big ? 6 : 4, big); }
+    const n = world.nestCenter(); label(n.x, n.z, "Fly Nest", "#c8633a", 7, true);
+    if (np) { x.strokeStyle = "#ffd23f"; x.lineWidth = 4; x.beginPath(); x.arc(cx + np.x * s, cx + np.z * s, 12, 0, 7); x.stroke(); x.font = "900 12px system-ui"; x.fillStyle = "#141218"; x.fillText("Greg's next stop", cx + np.x * s, cx + np.z * s + 26); }
+    for (const o of api.others ? api.others() : []) { x.fillStyle = "#ffd23f"; x.strokeStyle = "#141218"; x.lineWidth = 1.5; x.beginPath(); x.arc(cx + o.x * s, cx + o.z * s, 4, 0, 7); x.fill(); x.stroke(); }
+    const g = world.gregPos(); x.fillStyle = "#3ea24a"; x.strokeStyle = "#141218"; x.lineWidth = 3; x.beginPath(); x.arc(cx + g.x * s, cx + g.z * s, 10, 0, 7); x.fill(); x.stroke(); x.fillStyle = "#141218"; x.font = "900 14px system-ui"; x.fillText("Greg", cx + g.x * s, cx + g.z * s + 26);
+    if (me) { x.fillStyle = "#ff5a4a"; x.lineWidth = 2; x.beginPath(); x.arc(cx + me.x * s, cx + me.z * s, 7, 0, 7); x.fill(); x.stroke(); x.fillStyle = "#141218"; x.fillText("You", cx + me.x * s, cx + me.z * s + 22); }
   }
+  map.querySelector("canvas").addEventListener("click", (e) => {
+    const r = e.target.getBoundingClientRect(), mx = ((e.clientX - r.left) / r.width) * 520, my = ((e.clientY - r.top) / r.height) * 520;
+    let best = null, bd = 30; for (const h of mapHits) { const d = Math.hypot(h.x - mx, h.y - my); if (d < bd) { bd = d; best = h; } }
+    if (best) { api.onGuide && api.onGuide(best); mapOpen = false; map.classList.add("hide"); }
+  });
   // highlight keys while pressed
   addEventListener("keydown", (e) => { const l = CODE_LABEL[e.code]; if (l && rows.get(l)) rows.get(l).classList.add("on"); });
   addEventListener("keyup", (e) => { const l = CODE_LABEL[e.code]; if (l && rows.get(l)) rows.get(l).classList.remove("on"); });
   function done(k) { if (doneSet.has(k)) return; doneSet.add(k); save.set("hints", [...doneSet]); nextHint(); }
   let lastMap = 0, discT = 0;
   const api = {
+    toggleHow, openMap: () => { mapOpen = true; map.classList.remove("hide"); input.release(); }, closeMap: () => { mapOpen = false; map.classList.add("hide"); }, howOpen: () => how.classList.contains("show"),
+    askName, nameOk, setMode, onMode: null, others: null, onGuide: null,
     done, mapOpen: () => mapOpen, mobile: null,
     prompt: (text, key = "F") => { if (!text) { prompt.classList.add("hide"); return; } prompt.classList.remove("hide"); prompt.lastChild.textContent = text; prompt.firstChild.textContent = key; },
     flight: (f) => {
@@ -135,7 +173,7 @@ export function createHud({ input, save, world }) {
     splats: (n) => { splat.querySelector("b").textContent = n; },
     trick: (m) => { disc.textContent = m; disc.classList.remove("hide"); clearTimeout(discT); discT = setTimeout(() => disc.classList.add("hide"), 1400); },
     discovery: (n) => { disc.textContent = `Discovery! ${n} found`; disc.classList.remove("hide"); clearTimeout(discT); discT = setTimeout(() => disc.classList.add("hide"), 2200); },
-    controlsHtml: () => `<div class="grows big">${CONTROLS.map(([k, l]) => `<div class="grow">${keyHtml(k)}<span>${l}</span></div>`).join("")}</div>`,
+    controlsHtml: () => `<div class="grows big">${(skill ? CONTROLS_SKILL : CONTROLS).map(([k, l]) => `<div class="grow">${keyHtml(k)}<span>${l}</span></div>`).join("")}</div>`,
     panels: () => [...document.querySelectorAll(".gcard:not(.closed), .flyhud, .top .status, .sheet, .gprompt:not(.hide), .flyui")],
   };
   return api;

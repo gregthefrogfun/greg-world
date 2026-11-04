@@ -6,6 +6,7 @@ import { startFlies } from "./flies.js";
 import { createInput } from "./input.js";
 import { createHud, createSave } from "./hud.js";
 import { createEyes } from "./eyes.js";
+import { startChat } from "./chat.js";
 
 const $ = (s) => document.querySelector(s);
 const prefs = (() => { try { return JSON.parse(localStorage.getItem("greg_prefs") || "{}"); } catch { return {}; } })();
@@ -65,13 +66,32 @@ try {
     isSoundOn: () => prefs.sound !== false,
     onCount: (n) => { const el = $("#online"); if (el) el.textContent = n; },
     onRubNear: () => { const now = Date.now(); if (now - (window.__rubNag || 0) < 20000 || Math.random() < 0.5) { window.__rubNag = window.__rubNag || 0; return; } window.__rubNag = now; const say = $("#say"); say.textContent = ["Don't you dare.", "Hands where I can see them, buddy.", "Rubbing your hands near my croissant? Bold move."][Math.floor(Math.random() * 3)]; say.classList.remove("hide"); clearTimeout(window.__rentT); window.__rentT = setTimeout(renderTop, 4000); },
-    onUnpaidNear: (mine) => { const now = Date.now(); if (now - (window.__rentNag || 0) < 25000) return; window.__rentNag = now; const say = $("#say"); say.textContent = ["Rent's due, buddy.", "Nice wings. Nicer if they paid rent.", "Tap tap tap. That's my foot. Rent, friend.", "Free-loading fly spotted. I'm watching you. Fondly."][Math.floor(Math.random() * 4)]; say.classList.remove("hide"); clearTimeout(window.__rentT); window.__rentT = setTimeout(renderTop, 4500); },
+    onUnpaidNear: (mine) => { const now = Date.now(); if (now - (window.__rentNag || 0) < 25000) return; window.__rentNag = now; const say = $("#say"); const nm = mine && flies ? flies.name() : "buddy"; say.textContent = [`Rent's due, ${nm}.`, "Nice wings. Nicer if they paid rent.", "Tap tap tap. That's my foot. Rent, friend.", "Free-loading fly spotted. I'm watching you. Fondly."][Math.floor(Math.random() * 4)]; say.classList.remove("hide"); clearTimeout(window.__rentT); window.__rentT = setTimeout(renderTop, 4500); },
     onRent: (total) => { if (total != null) { const el = $("#flyRent"); if (el) el.textContent = total; } const pop = $("#rentPop"); if (pop) { pop.classList.remove("show"); void pop.offsetWidth; pop.classList.add("show"); } },
   });
   flies.onDeath(() => { toast("SWATTED! Respawning in 3..."); audio.blip("low"); });
   hud.mobile = (k, v) => flies.setMobile(k, v);
   const eyes = createEyes(world, flies); input.on("eyes", () => eyes.toggle());
-  input.on("closeMenu", () => closeModal());
+  input.on("closeMenu", () => closeTop());
+  try { startChat({ input, save, flies, toast }); } catch (e) { console.error("chat", e); }
+  const rb = $("#renameBtn"); if (rb) rb.onclick = () => { closeTop(true); flies.rename(); };
+  // ☰ menu: one list; every panel closes with ×, Esc (top panel first) or a click outside, and only one is open at a time
+  const menuEl = $("#menu");
+  const fillMenu = () => { $("#mName").textContent = flies.name(); $("#mMode").textContent = flies.settings.skill ? "Skill" : "Assisted"; $("#mSound").textContent = prefs.sound === false ? "off" : "on"; $("#mQ").textContent = world.isLowQuality() ? "Low" : "High"; };
+  const openMenu = () => { closeTop(true); fillMenu(); menuEl.classList.add("show"); input.release(); };
+  $("#menuBtn").onclick = (e) => { e.stopPropagation(); menuEl.classList.contains("show") ? menuEl.classList.remove("show") : openMenu(); };
+  $("#menuClose").onclick = () => menuEl.classList.remove("show");
+  menuEl.querySelectorAll("[data-m]").forEach((b) => (b.onclick = () => { const m = b.dataset.m;
+    if (m === "resume") menuEl.classList.remove("show");
+    if (m === "mode") { hud.onMode(!flies.settings.skill); fillMenu(); }
+    if (m === "how") { menuEl.classList.remove("show"); hud.toggleHow(true); }
+    if (m === "map") { menuEl.classList.remove("show"); hud.openMap(); }
+    if (m === "chat") { menuEl.classList.remove("show"); input.press("chat"); input.press("chat", false); }
+    if (m === "sound") { setSound(prefs.sound === false); fillMenu(); }
+    if (m === "quality") { world.setLowQuality(!world.isLowQuality()); fillMenu(); }
+    if (m === "unstuck") { menuEl.classList.remove("show"); flies.unstuck(); } }));
+  window.__openMenu = openMenu;
+  window.__closeTop = closeTop;
   $("#payBtn").onclick = async () => { $("#payBtn").disabled = true; await flies.payRent(); audio.blip(); toast("Rent paid. Greg nods approvingly. 🪙"); setTimeout(() => ($("#payBtn").disabled = false), 60000); };
   $("#askBtn").onclick = () => { openTab("mail"); setTimeout(() => { const q = $("#isq"); if (q) q.checked = true; $("#note")?.focus(); }, 50); };
   $("#lqBtn").onclick = () => { const v = !world.isLowQuality(); world.setLowQuality(v); $("#lqBtn").textContent = v ? "⚡ Low" : "✨ HQ"; };
@@ -118,7 +138,7 @@ document.querySelectorAll("[data-sol]").forEach((b) => (b.onclick = async () => 
 
 // ---------- menu overlay ----------
 const menu = $("#menu");
-if (menu) { $("#menuBtn").onclick = () => menu.classList.toggle("show"); menu.onclick = (e) => { if (e.target === menu) menu.classList.remove("show"); }; }
+if (menu) { menu.onclick = (e) => { if (e.target === menu) menu.classList.remove("show"); }; }
 
 // ---------- sheet + tabs ----------
 let tab = prefs.tab || "feed", worksSeg = "gallery";
@@ -238,7 +258,11 @@ function openPick(k) {
 }
 const closeModal = () => $("#modal").classList.remove("show");
 $("#mclose").onclick = closeModal; $("#modal").onclick = (e) => { if (e.target.id === "modal") closeModal(); };
-addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
+function closeTop(all) {
+  const order = [() => $("#modal").classList.contains("show") && ($("#modal").classList.remove("show"), true), () => $("#menu")?.classList.contains("show") && ($("#menu").classList.remove("show"), true), () => document.querySelector(".ghow.show:not(.gname)") && (document.querySelector(".ghow.show:not(.gname)").classList.remove("show"), true), () => document.querySelector(".gmap:not(.hide)") && (document.querySelector(".gmap").classList.add("hide"), true)];
+  let any = false; for (const f of order) { if (f()) { any = true; if (!all) break; } } return any;
+}
+addEventListener("keydown", (e) => { if (e.key === "Escape" && !document.activeElement?.closest?.("input,textarea") && !document.querySelector(".gname.show")) { if (!closeTop() && window.__openMenu) window.__openMenu(); } });
 let tt = 0; function toast(m) { const t = $("#toast"); t.textContent = m; t.classList.add("show"); clearTimeout(tt); tt = setTimeout(() => t.classList.remove("show"), 1800); }
 
 // ---------- data wiring ----------

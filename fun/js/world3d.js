@@ -437,7 +437,7 @@ export function createWorld(canvas, { onReady, lowPower, onPick, onUserOrbit, on
       Object.values(actions).forEach((a) => { a.play(); a.setEffectiveWeight(0); });
       const bones = {}; const NAMES = { rhand: "RightHand", rarm: "RightArm", rfore: "RightForeArm", larm: "LeftArm", lfore: "LeftForeArm", spine: "Spine02", head: "Head", hips: "Hips" };
       root.traverse((o) => { if (o.isBone) for (const [k, n] of Object.entries(NAMES)) if (o.name === n) bones[k] = o; });
-      rig = { mixer, actions, bones, rest: {} };
+      rig = { mixer, actions, bones, rest: {}, k: root.scale.x };
       for (const [k, b] of Object.entries(bones)) rig.rest[k] = b.quaternion.clone();
       return;
     }
@@ -534,7 +534,10 @@ export function createWorld(canvas, { onReady, lowPower, onPick, onUserOrbit, on
   const frameHooks = []; let followObj = null, glance = null, glanceUnpaid = false;
   const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(); let down = null;
   canvas.addEventListener("pointerdown", (e) => { down = { x: e.clientX, y: e.clientY, t: performance.now() }; });
+  // world objects open only when NOT flying (Greg cam / orbit view) and never while the pointer is locked
+  let pickGate = () => true;
   canvas.addEventListener("pointerup", (e) => {
+    if (document.pointerLockElement || !pickGate()) { down = null; return; }
     if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 8 || performance.now() - down.t > 600) { down = null; return; }
     down = null; const r = canvas.getBoundingClientRect();
     ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
@@ -619,6 +622,7 @@ export function createWorld(canvas, { onReady, lowPower, onPick, onUserOrbit, on
   }
 
   let wander = new THREE.Vector2(), wanderT = new THREE.Vector2(), gregSpeed = 0;
+  const loco = { v: 0, init: false, path: null, pathAt: 0, pi: 1, turnRate: 0, phase: 0 };
   const DOWN = new THREE.Vector3(0, -1, 0), tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3();
   // the brain moves Greg when it ticks; if it has been quiet for 20 min, the deterministic routine takes over
   // the hourly schedule drives where Greg is; a fresh brain event (swat, talk, wish, cheer) interrupts for a few minutes, then he resumes
@@ -643,20 +647,38 @@ export function createWorld(canvas, { onReady, lowPower, onPick, onUserOrbit, on
     tmp.set(sit ? sit[0] : p.x, 0, sit ? sit[1] : p.z);
     wander.lerp(wanderT, Math.min(1, dt * 0.8));
     if (!walking && !sit) tmp.x += wander.x, tmp.z += wander.y;
+    // locomotion: Greg chases the shared route point with a speed limit (0.8 m/s stroll, 1.2 m/s when behind),
+    // accelerates over ~0.4 s, brakes over ~0.5 s, turns at most 120 deg/s and turns in place before big turns.
     const prev = greg.position.clone();
-    greg.position.x += (tmp.x - greg.position.x) * (walking ? 0.35 : 0.08); greg.position.z += (tmp.z - greg.position.z) * (walking ? 0.35 : 0.08);
-    { const hit = phys.raycast(new THREE.Vector3(greg.position.x, 0.7, greg.position.z), DOWN, 1.2); const gy = hit && hit.normal.y > 0.7 ? hit.point.y : 0; greg.position.y += (gy - greg.position.y) * Math.min(1, dt * 10); }
+    if (!loco.init) { greg.position.set(tmp.x, 0, tmp.z); loco.init = true; }
+    const tx = tmp.x - greg.position.x, tz = tmp.z - greg.position.z, dist = Math.hypot(tx, tz);
+    let aimX = tmp.x, aimZ = tmp.z;
+    if (dist > 1.6 && nav.isReady()) { // far behind (after an interruption or a visit): walk the nav path, not a straight line
+      if (!loco.path || now - loco.pathAt > 1000) { loco.path = nav.route([greg.position.x, greg.position.z], [tmp.x, tmp.z]); loco.pathAt = now; loco.pi = 1; }
+      const P2 = loco.path; if (P2 && P2.length > 1) { while (loco.pi < P2.length - 1 && Math.hypot(P2[loco.pi][0] - greg.position.x, P2[loco.pi][1] - greg.position.z) < 0.35) loco.pi++; aimX = P2[loco.pi][0]; aimZ = P2[loco.pi][1]; }
+    } else loco.path = null;
+    const ax = aimX - greg.position.x, az = aimZ - greg.position.z, ad = Math.hypot(ax, az);
+    const routeV = walking ? SCALE.walkSpeed * (p.speed ?? 1) : 0;
+    let vT = dist < 0.04 ? 0 : Math.min(walking || dist > 0.6 ? 1.2 : 0.8, routeV + 1.6 * Math.max(0, dist - 0.12));
+    vT = Math.min(vT, Math.sqrt(2 * 1.6 * dist)); // brake into the stop
+    const wantYaw = ad > 0.05 ? Math.atan2(ax, az) : null;
+    if (wantYaw !== null) { let d0 = Math.atan2(Math.sin(wantYaw - greg.rotation.y), Math.cos(wantYaw - greg.rotation.y)); if (Math.abs(d0) > 1.0 && loco.v < 0.3) vT = 0; else vT *= Math.max(0.35, Math.cos(Math.min(1.2, Math.abs(d0)))); }
+    loco.vT = vT; loco.dist = dist; loco.ad = ad;
+    loco.v += Math.max(-1.6 * dt, Math.min(2.0 * dt, vT - loco.v));
+    if (ad > 1e-4 && loco.v > 0) { const step = Math.min(ad, loco.v * dt), fx = Math.sin(greg.rotation.y), fz = Math.cos(greg.rotation.y); const mx = ax / ad, mz = az / ad; const bx = fx * 0.75 + mx * 0.25, bz = fz * 0.75 + mz * 0.25, bl = Math.hypot(bx, bz) || 1; greg.position.x += (bx / bl) * step; greg.position.z += (bz / bl) * step; loco.step = step; loco.aim = [aimX, aimZ]; }
+    { const hit = phys.raycast(new THREE.Vector3(greg.position.x, greg.position.y + 0.7, greg.position.z), DOWN, 1.4); const gy = hit && hit.normal.y > 0.7 ? hit.point.y : 0; greg.position.y += (gy - greg.position.y) * Math.min(1, dt * 8); }
     phys.moveCapsule("greg", tmpA.set(greg.position.x, greg.position.y + 0.5, greg.position.z), tmpB.set(greg.position.x, greg.position.y + 1.75, greg.position.z));
-    gregSpeed = greg.position.distanceTo(prev) / Math.max(dt, 1e-3);
-    const moved = greg.position.distanceTo(prev);
-    if (micro && micro.pose === "walk" && moved > 0.002) pose = "walk";
-    if (walking) heading = Math.hypot(pAhead.x - p.x, pAhead.z - p.z) > 0.02 ? Math.atan2(pAhead.x - p.x, pAhead.z - p.z) : p.dir;
+    gregSpeed = Math.hypot(greg.position.x - prev.x, greg.position.z - prev.z) / Math.max(dt, 1e-3);
+    const moving = loco.v > 0.06; if (loco.was && !moving) loco.stopAt = t; loco.was = moving;
+    if (moving) pose = "walk";
+    if (wantYaw !== null && (moving || dist > 0.08)) heading = wantYaw;
     else if (sit) heading = sit[2];
-    else if (moved > 0.004) heading = Math.atan2(greg.position.x - prev.x, greg.position.z - prev.z);
     else if (pose === "golf") heading = Math.atan2(holeP.x - greg.position.x, holeP.z - greg.position.z);
     else if ((pose === "windup" || pose === "jab") && punchTarget) heading = Math.atan2(punchTarget.x - greg.position.x, punchTarget.z - greg.position.z);
     else if (pose === "wave" || pose === "idle") heading = Math.atan2(camera.position.x - greg.position.x, camera.position.z - greg.position.z);
-    let dy = heading - greg.rotation.y; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); greg.rotation.y += dy * Math.min(1, dt * 6);
+    let dy = Math.atan2(Math.sin(heading - greg.rotation.y), Math.cos(heading - greg.rotation.y));
+    const maxTurn = 2.09 * dt; const turn = Math.max(-maxTurn, Math.min(maxTurn, dy * Math.min(1, dt * 8) / Math.max(dt, 1e-3) * dt));
+    greg.rotation.y += turn; loco.turnRate += ((turn / Math.max(dt, 1e-3)) - loco.turnRate) * Math.min(1, dt * 8);
     const speed = mood === "jittery" ? 1.5 : emo.pride > 75 ? 1.2 : emo.joy < 30 ? 0.75 : 1;
     animate(pose, t, dt, speed, mood === "jittery");
     if (glance && rig?.bones.head && greg.position.distanceTo(glance) < 3.2) { const a = Math.atan2(glance.x - greg.position.x, glance.z - greg.position.z) - greg.rotation.y; const yaw = Math.max(-0.9, Math.min(0.9, Math.atan2(Math.sin(a), Math.cos(a)))); bone("head", 0, yaw / 0.6, 0); }
@@ -685,15 +707,25 @@ export function createWorld(canvas, { onReady, lowPower, onPick, onUserOrbit, on
     const want = PROP[pose]; for (const [k, p] of Object.entries(held)) if (p) p.visible = k === want;
     zzz.forEach((z) => (z.visible = pose === "sleep"));
     if (rig) {
-      walkW += ((pose === "walk" ? 1 : 0) - walkW) * Math.min(1, dt * 6); idleW = 1 - walkW;
-      rig.actions.walk.setEffectiveWeight(walkW); rig.actions.walk.timeScale = pose === "walk" ? Math.max(0.35, Math.min(1.8, gregSpeed / SCALE.walkSpeed)) : speed;
+      // 0.25 s linear crossfade; playback rate from ground speed and the clip's measured stance speed, so planted feet don't slide
+      walkW += Math.max(-dt / 0.25, Math.min(dt / 0.25, (pose === "walk" ? 1 : 0) - walkW)); idleW = 1 - walkW;
+      rig.actions.walk.setEffectiveWeight(walkW); rig.actions.walk.timeScale = pose === "walk" ? Math.max(0.05, Math.min(2.2, gregSpeed / (WALK_CLIP.stance * rig.k))) : 1;
       if (rig.actions.idle) rig.actions.idle.setEffectiveWeight(idleW);
       rig.mixer.update(dt);
     }
     const s = t * speed, j = jitter ? (Math.random() - 0.5) * 0.03 : 0;
     gregBody.position.x += j;
     switch (pose) {
-      case "walk": { const w = Math.sin(s * 9); gregBody.position.y = Math.abs(w) * 0.16; gregBody.rotation.z = w * 0.14; gregBody.rotation.x = speed < 0.9 ? 0.18 : 0.06; if (speed > 1.1) gregBody.scale.set(1.04, 1, 1.04); hand.rotation.x = w * 0.6; break; }
+      case "walk": {
+        // waddle layered on the rig (or the whole walk for the fallback model), phase locked to the steps:
+        // weight shift side to side once per cycle, a small bob twice per cycle, lean into turns, head steady
+        const ph = rig ? ((rig.actions.walk.time / WALK_CLIP.dur) * WALK_CLIP.cycles) % 1 : (loco.phase = (loco.phase + (gregSpeed * dt) / 1.1) % 1);
+        const a = ph * Math.PI * 2, k = Math.min(1, gregSpeed / 0.5);
+        gregBody.position.x = Math.sin(a) * 0.035 * k; gregBody.position.y = (rig ? 0.012 : 0.05) * k * (1 - Math.cos(2 * a)) * 0.5;
+        gregBody.rotation.z = -Math.sin(a) * 0.05 * k - Math.max(-0.08, Math.min(0.08, loco.turnRate * 0.04)); gregBody.rotation.x = 0.04 * k;
+        bone("head", 0, 0, Math.sin(a) * 0.05 * k); hand.rotation.x = -Math.sin(a) * 0.45 * k;
+        break;
+      }
       case "idle": { const b = Math.sin(t * 2); gregBody.scale.set(1 + b * 0.02, 1 - b * 0.025, 1 + b * 0.02); gregBody.rotation.y = Math.sin(t * 0.5) * 0.25; if ((t % 4.3) < 0.12) gregBody.scale.y *= 0.96; break; }
       case "look": gregBody.rotation.y = Math.sin(t * 0.9) * 0.7; bone("head", 0, Math.sin(t * 0.9) * 0.6, 0); break;
       case "lookup": gregBody.rotation.x = -0.3; bone("head", -0.6, 0, 0); break;
@@ -730,6 +762,7 @@ export function createWorld(canvas, { onReady, lowPower, onPick, onUserOrbit, on
       case "jab": gregBody.rotation.y = 0.35; gregBody.rotation.x = 0.2; gregBody.position.z = 0.25; bone("rarm", -1.6, 0, 0); hand.position.set(0.2, GREG_H * 0.62, 0.9); break;
       case "facepalm": gregBody.rotation.x = 0.3; bone("rarm", -2.0, 0, 0.8); hand.position.set(0.1, GREG_H * 0.85, 0.35); break;
     }
+    { const st0 = t - (loco.stopAt ?? -9); if (st0 < 0.45 && pose !== "walk") { const k = Math.sin((st0 / 0.45) * Math.PI); gregBody.scale.y *= 1 - 0.035 * k; gregBody.scale.x *= 1 + 0.02 * k; gregBody.scale.z *= 1 + 0.02 * k; } }
     if (pose !== "golf" && pose !== "read" && pose !== "cook" && pose !== "eat" && pose !== "lift" && pose !== "juggle" && pose !== "throw" && pose !== "paint" && pose !== "rent" && pose !== "scratch" && pose !== "piano" && pose !== "facepalm" && pose !== "windup" && pose !== "jab") { hand.position.set(0.48, GREG_H * 0.43, 0.32); hand.rotation.set(0, 0, 0); }
   }
 
@@ -783,10 +816,10 @@ export function createWorld(canvas, { onReady, lowPower, onPick, onUserOrbit, on
   }
   return {
     punch: (target, at) => { punchAt = at; punchTarget = target; },
-    hq, nav, phys, interactables, isl, greg, nest, espresso, debugOn, onEvent: (f) => eventHooks.push(f), rebuildPhysics, buildPhysicsNow,
+    _loco: () => ({ ...loco, path: loco.path?.length, tmp: [tmp.x, tmp.z], heading, rot: greg.rotation.y }), hq, nav, phys, interactables, isl, greg, nest, espresso, debugOn, onEvent: (f) => eventHooks.push(f), rebuildPhysics, buildPhysicsNow,
     nestSpawns: () => nest.userData.spawns.map((v) => nest.localToWorld(v.clone())), nestCenter: () => nest.localToWorld(new THREE.Vector3(0, 0.7, 0.4)),
     setNest: (n) => nest.userData.drawSign(n), gregPlan: (now) => (st ? gregPlan(now) : null), gregHeadY: () => greg.position.y + GREG_H * 0.92,
-    renderer, setRenderOverride: (f) => (renderOverride = f), fps: () => lastFps,
+    setPickGate: (f) => (pickGate = f), renderer, setRenderOverride: (f) => (renderOverride = f), fps: () => lastFps,
     setNear: (n) => { if (Math.abs(camera.near - n) > 1e-4) { camera.near = n; camera.updateProjectionMatrix(); } },
     setCards, cheer: () => { cheerUntil = performance.now() + 4000; cheerKind = "green"; },
     setState, setItems, setCareers, setProperties, setScreen, setClockSkew, focus, coinPop,
@@ -830,6 +863,9 @@ export function createWorld(canvas, { onReady, lowPower, onPick, onUserOrbit, on
   function flagFallback() { const g = new THREE.Group(); const pole = M(G.cyl(0.04, 0.04, 2.4, 6), 0xffffff, { ot: 0.6 }); pole.position.y = 1.2; g.add(pole); g.add(M(flagGeo(), 0xff4a3a, { side: THREE.DoubleSide, outline: false })); return g; }
 }
 
+// Walk clip data, measured from greg-walk.glb with forward kinematics: 3 cycles in 4.2 s, a planted foot moves
+// back at 0.27 model units/s (x the rig's scale = metres/s at playback rate 1).
+const WALK_CLIP = { dur: 4.2, cycles: 3, stance: 0.27 };
 function flagGeo() { const fg = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 2.4, 0), new THREE.Vector3(0, 1.9, 0), new THREE.Vector3(0.9, 2.15, 0)]); fg.computeVertexNormals(); return fg; }
 let _grad = null;
 function toonGradient() { if (_grad) return _grad; const d = new Uint8Array([90, 170, 255]); _grad = new THREE.DataTexture(d, 3, 1, THREE.RedFormat); _grad.minFilter = _grad.magFilter = THREE.NearestFilter; _grad.needsUpdate = true; return _grad; }

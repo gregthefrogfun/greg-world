@@ -30,7 +30,7 @@ export const PLACES = {
 };
 
 // One scale table for the whole island (meters). Greg is the "human" scale; the fly is tiny next to him.
-export const SCALE = { gregH: 2.2, gregR: 0.55, doorH: 2.6, doorW: 1.5, wallH: 3.0, tableH: 0.78, chairSeat: 0.46, cupH: 0.12, cupR: 0.06, flyR: 0.025, flyBody: 0.066, walkSpeed: 1.15 };
+export const SCALE = { gregH: 2.2, gregR: 0.55, doorH: 2.6, doorW: 1.5, wallH: 3.0, tableH: 0.78, chairSeat: 0.46, cupH: 0.12, cupR: 0.06, flyR: 0.025, flyBody: 0.066, walkSpeed: 0.8 };
 
 // Greg's walking route. Every route passes the plaza on a ring around the fountain (never through it),
 // with rounded corners, so all viewers compute the same smooth path from the server's from/to and timing.
