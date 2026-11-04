@@ -36,7 +36,7 @@ export function createHud({ input, save, world }) {
   // mode pill (always visible): Assisted | Skill, K toggles
   const pill = stop(el(`<div class="gmode" role="group" aria-label="Flight mode"><button data-m="0">✈️ Assisted</button><button data-m="1">🪰 Skill</button></div>`)); root.appendChild(pill);
   pill.querySelectorAll("button").forEach((b) => (b.onclick = () => api.onMode && api.onMode(b.dataset.m === "1")));
-  function setMode(v) { skill = v; pill.querySelectorAll("button").forEach((b) => b.classList.toggle("on", (b.dataset.m === "1") === v)); renderRows(); }
+  function setMode(v) { skill = v; document.body.classList.toggle("skillmode", v); pill.querySelectorAll("button").forEach((b) => b.classList.toggle("on", (b.dataset.m === "1") === v)); renderRows(); }
   // prompt chip (glowing carved-E style), hints, indicator, click-to-fly, speed lines
   const prompt = el(`<div class="gprompt hide"><kbd class="glow">F</kbd><span></span></div>`); root.appendChild(prompt);
   const hint = el(`<div class="ghint hide"></div>`); root.appendChild(hint);
@@ -165,7 +165,6 @@ export function createHud({ input, save, world }) {
       x.fillStyle = "rgba(255,255,255,.88)"; x.beginPath(); x.roundRect(r.x, r.y, r.w, r.h, 6); x.fill(); x.fillStyle = L.col || "#141218"; x.textAlign = "center"; x.textBaseline = "middle"; x.fillText(L.text, lx, ly + 1);
     }
     x.textBaseline = "alphabetic";
-    if (np) { x.font = "900 12px system-ui"; x.fillStyle = "#141218"; x.textAlign = "left"; x.fillText("◯ Greg's next stop: " + info.next.label, 14, W - 14); }
   }
   map.querySelector("canvas").addEventListener("click", (e) => {
     const r = e.target.getBoundingClientRect(), mx = ((e.clientX - r.left) / r.width) * 520, my = ((e.clientY - r.top) / r.height) * 520;

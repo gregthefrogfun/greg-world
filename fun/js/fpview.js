@@ -3,14 +3,14 @@
 export function createFPView(THREE, camera) {
   const view = new THREE.Group(); camera.add(view);
   const chitin = new THREE.ShaderMaterial({
-    uniforms: { uBase: { value: new THREE.Color(0x2a1c12) }, uRim: { value: new THREE.Color(0xffc98a) } },
+    uniforms: { uBase: { value: new THREE.Color(0x0f0c0b) }, uRim: { value: new THREE.Color(0x9fb4c8) } },
     vertexShader: `varying vec3 vN; varying vec3 vV; void main(){ vec4 mv = modelViewMatrix*vec4(position,1.); vN = normalize(normalMatrix*normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix*mv; }`,
-    fragmentShader: `uniform vec3 uBase; uniform vec3 uRim; varying vec3 vN; varying vec3 vV; void main(){ vec3 n = normalize(vN); float l = 0.45 + 0.55*max(0., dot(n, normalize(vec3(.4,.8,.5)))); float spec = pow(max(0., dot(reflect(-normalize(vec3(.4,.8,.5)), n), vV)), 24.); float rim = pow(1. - max(0., dot(n, vV)), 2.5); gl_FragColor = vec4(uBase*l + vec3(.55,.45,.35)*spec*.6 + uRim*rim*.55, 1.); }`,
+    fragmentShader: `uniform vec3 uBase; uniform vec3 uRim; varying vec3 vN; varying vec3 vV; void main(){ vec3 n = normalize(vN); float l = 0.55 + 0.45*max(0., dot(n, normalize(vec3(.4,.8,.5)))); float spec = pow(max(0., dot(reflect(-normalize(vec3(.4,.8,.5)), n), vV)), 24.); float rim = pow(1. - max(0., dot(n, vV)), 2.5); gl_FragColor = vec4(uBase*l + vec3(.8,.8,.85)*spec*.9 + uRim*rim*.35, 1.); }`,
   });
-  const hairMat = new THREE.MeshBasicMaterial({ color: 0x1a120c });
+  const hairMat = new THREE.MeshBasicMaterial({ color: 0x0a0807, transparent: true, opacity: 0.85 });
   const padMat = new THREE.MeshBasicMaterial({ color: 0xd9c49a });
   const seg = (r0, r1, len) => { const g = new THREE.CylinderGeometry(r1, r0, len, 7, 1); g.rotateX(-Math.PI / 2); g.translate(0, 0, -len / 2); return g; };
-  const hairGeo = new THREE.ConeGeometry(0.00045, 0.009, 3); hairGeo.translate(0, 0.0045, 0);
+  const hairGeo = new THREE.ConeGeometry(0.00018, 0.0045, 3); hairGeo.translate(0, 0.00225, 0);
   function bristles(len, r, n, parent, seed) {
     const m = new THREE.InstancedMesh(hairGeo, hairMat, n), d = new THREE.Object3D(); let a = seed;
     const rnd = () => ((a = (a * 16807) % 2147483647) / 2147483647);
@@ -22,15 +22,15 @@ export function createFPView(THREE, camera) {
     }
     parent.add(m); return m;
   }
-  const L1 = 0.085, L2 = 0.08, L3 = 0.042;
+  const L1 = 0.075, L2 = 0.07, L3 = 0.038;
   function makeLeg(s) {
-    const root = new THREE.Group(); root.position.set(s * 0.03, -0.072, -0.045); view.add(root);
-    const coxa = new THREE.Mesh(new THREE.SphereGeometry(0.009, 8, 6), chitin); coxa.scale.set(1, 1, 1.6); root.add(coxa);
-    const femur = new THREE.Group(); root.add(femur); femur.add(new THREE.Mesh(seg(0.0062, 0.0046, L1), chitin)); bristles(L1, 0.005, 46, femur, 11 + s);
-    const tibia = new THREE.Group(); tibia.position.z = -L1; femur.add(tibia); tibia.add(new THREE.Mesh(seg(0.0046, 0.0034, L2), chitin)); bristles(L2, 0.0038, 38, tibia, 29 + s);
-    const knee = new THREE.Mesh(new THREE.SphereGeometry(0.0048, 8, 6), chitin); tibia.add(knee);
+    const root = new THREE.Group(); root.position.set(s * 0.034, -0.086, -0.045); view.add(root);
+    const coxa = new THREE.Mesh(new THREE.SphereGeometry(0.0045, 8, 6), chitin); coxa.scale.set(1, 1, 1.6); root.add(coxa);
+    const femur = new THREE.Group(); root.add(femur); femur.add(new THREE.Mesh(seg(0.0034, 0.0026, L1), chitin)); bristles(L1, 0.0028, 26, femur, 11 + s);
+    const tibia = new THREE.Group(); tibia.position.z = -L1; femur.add(tibia); tibia.add(new THREE.Mesh(seg(0.0025, 0.0019, L2), chitin)); bristles(L2, 0.0021, 22, tibia, 29 + s);
+    const knee = new THREE.Mesh(new THREE.SphereGeometry(0.0027, 8, 6), chitin); tibia.add(knee);
     const tars = []; let parent = tibia, z = -L2;
-    for (let i = 0; i < 4; i++) { const t = new THREE.Group(); t.position.z = z; parent.add(t); const l = L3 / 4; t.add(new THREE.Mesh(seg(0.0029 - i * 0.0003, 0.0026 - i * 0.0003, l), chitin)); bristles(l, 0.0026, 6, t, 50 + i * 7 + s); tars.push(t); parent = t; z = -l; }
+    for (let i = 0; i < 4; i++) { const t = new THREE.Group(); t.position.z = z; parent.add(t); const l = L3 / 4; t.add(new THREE.Mesh(seg(0.0017 - i * 0.0002, 0.0015 - i * 0.0002, l), chitin)); bristles(l, 0.0015, 3, t, 50 + i * 7 + s); tars.push(t); parent = t; z = -l; }
     const tip = new THREE.Group(); tip.position.z = z; parent.add(tip);
     for (const c of [-1, 1]) {
       const claw = new THREE.Mesh(new THREE.ConeGeometry(0.0011, 0.007, 4), chitin); claw.position.set(c * 0.0022, -0.001, -0.002); claw.rotation.x = -2.2; claw.rotation.z = c * 0.3; tip.add(claw);
@@ -77,7 +77,7 @@ export function createFPView(THREE, camera) {
       const s = leg.s;
       // idle: breathing sway + random twitches, out of phase
       twT[i] -= dt; if (twT[i] < 0) { tw[i] = 1; twT[i] = 0.6 + ((t * 7.3 + i * 3.1) % 1) * 2.2; } tw[i] = Math.max(0, tw[i] - dt * 6);
-      tgt.set(s * 0.056 + Math.sin(t * 1.3 + i * 2) * 0.003, -0.098 + Math.sin(t * 1.9 + i) * 0.003 + tw[i] * 0.008, -0.19 + Math.sin(t * 1.1 + i * 1.7) * 0.004);
+      tgt.set(s * 0.06 + Math.sin(t * 1.3 + i * 2) * 0.003, -0.112 + Math.sin(t * 1.9 + i) * 0.003 + tw[i] * 0.008, -0.19 + Math.sin(t * 1.1 + i * 1.7) * 0.004);
       let flex = 0.35 + Math.sin(t * 2.3 + i * 1.4) * 0.15 + tw[i] * 0.4;
       // flight: tuck back and up, trail with turns, stretch forward when braking
       if (!S.perched) { tmp.set(s * 0.07 - S.yawRate * 0.012, -0.112 + sp * 0.02, -0.11 - S.brake * 0.09); tgt.lerp(tmp, Math.min(1, sp * 1.4 + S.brake)); flex += sp * 0.5; }

@@ -91,8 +91,9 @@ export function startFlies(world, { input, hud, save, onCount, onRent, onUnpaidN
   // ---------- audio: buzz (pitch follows throttle), wind (speed), rub scratch, flaps, bonk, pop ----------
   let ac = null, buzz = null, wind = null, rubG = null, noiseBuf = null; const remoteVoices = [];
   const soundOn = () => !isSoundOn || isSoundOn();
+  let gestured = false; for (const ev of ["pointerdown", "keydown", "touchstart"]) addEventListener(ev, () => (gestured = true), { once: true, capture: true });
   function audio() {
-    if (ac) return ac;
+    if (ac) return ac; if (!gestured) return null; // browsers only allow audio after the first tap or key
     try {
       ac = new (window.AudioContext || window.webkitAudioContext)();
       noiseBuf = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate); const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;

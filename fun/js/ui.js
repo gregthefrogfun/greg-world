@@ -101,6 +101,8 @@ window.__greg = { world, get flies() { return flies; }, get input() { return win
 
 // ---------- $1M meter (server-cached wallet value, pushed to everyone over Realtime) ----------
 const GREG_ADDR = "CNAg1pWXsyakdDr2XfVQqDWkdzY9mQpbYBTBxgc1oppf";
+// the only money number shown anywhere: real wallet SOL value + real cards, from the server cache
+const realTotal = () => { const st = store.state || {}; return Number(st.wallet_usd || 0) + Number(st.cards_usd || 0); };
 let lastTotal = null; const MILESTONES = [100, 1000, 10000, 100000, 1000000];
 function renderMeter() {
   const st = store.state || {}; const sol = Number(st.wallet_usd || 0), cards = Number(st.cards_usd || 0), tot = sol + cards;
@@ -109,7 +111,7 @@ function renderMeter() {
   $("#mFill").style.width = Math.max(0.3, Math.min(100, pct)) + "%";
   $("#mLine").textContent = `SOL ${usd(sol)} + cards ${usd(cards)} = ${usd(tot)} · wallet value, live on Solana`;
   if (lastTotal != null && MILESTONES.some((m) => lastTotal < m && tot >= m)) { world.cheer(); toast("Milestone! Greg is dancing."); }
-  lastTotal = tot;
+  lastTotal = tot; const wc = document.getElementById("worthChip"); if (wc) wc.textContent = usd(tot);
   const b = $("#wBal"); if (b && st.wallet_sol != null) b.textContent = Number(st.wallet_sol).toFixed(3) + " SOL";
   world.setCards(st.cards || []);
   const bd = $("#binder"); if (bd) bd.innerHTML = (st.cards || []).map((c) => `<div style="border:2px solid var(--ink);border-radius:8px;overflow:hidden;background:#fff;font-size:10.5px;font-weight:800">${c.image ? `<img src="${esc(c.image)}" alt="" loading="lazy" style="width:100%;aspect-ratio:5/7;object-fit:cover;display:block">` : ""}<div style="padding:3px">${esc((c.name || "").slice(0, 40))}<br>${esc(c.grade || "")} · ${usd(c.usd)}<br><span style="color:var(--muted)">${esc(c.source || "")}</span></div></div>`).join("") || `<p class="muted" style="grid-column:1/-1;font-weight:700">Waiting for the first pull. No cards in the wallet yet.</p>`;
@@ -184,7 +186,7 @@ function worksHTML() {
   return `<div class="seg"><button data-seg="gallery" aria-pressed="${worksSeg === "gallery"}">Gallery</button><button data-seg="jams" aria-pressed="${worksSeg === "jams"}">Jams</button><button data-seg="projects" aria-pressed="${worksSeg === "projects"}">Projects</button></div>${list.length ? inner : '<div class="empty">Nothing here yet. He is working on it.</div>'}${tools}`;
 }
 function moneyHTML() {
-  const nw = netWorth(); const pct = Math.min(100, (nw.total / GOAL_USD) * 100);
+  const st0 = store.state || {}; const nw = { total: realTotal(), sol: Number(st0.wallet_usd || 0), cards: Number(st0.cards_usd || 0) }; const pct = Math.min(100, (nw.total / GOAL_USD) * 100);
   const cards = store.positions.filter((p) => p.kind === "card");
   const bets = store.positions.filter((p) => p.kind === "bet");
   const pnl = (p) => { const v = p.status === "closed" ? Number(p.pnl || 0) : (Number(p.current_price ?? p.entry_price ?? 0) - Number(p.entry_price ?? 0)) * Number(p.qty || 1); return `<span class="pnl ${v >= 0 ? "up" : "down"}">${v >= 0 ? "+" : ""}${usd(v)}</span>`; };
@@ -193,7 +195,7 @@ function moneyHTML() {
   const w = store.wallet;
   const wallet = w?.address ? `<div class="entry"><div class="meta"><span class="badge ${w.enabled && !w.kill_switch ? "live" : "off"}">${w.enabled && !w.kill_switch ? "active" : "spending off"}</span></div><p style="word-break:break-all"><code>${esc(w.address)}</code></p><p>${w.balance_sol != null ? Number(w.balance_sol).toFixed(3) + " SOL" : "balance pending"}</p><p class="disc">Caps: ${w.per_tx_cap_sol} SOL per purchase, ${w.daily_cap_sol} SOL per day. Bigger moves need his owner's approval.</p></div>` : `<div class="empty">Greg does not have a real wallet yet. Everything below is paper money.</div>`;
   const chain = store.chain.slice(0, 10).map((c) => `<div class="entry"><div class="meta">${ago(c.created_at)} · ${esc(c.kind)}</div><p>${esc(c.note || "")} ${c.amount_sol ? c.amount_sol + " SOL" : ""} ${c.tx_sig ? `<a href="https://solscan.io/tx/${esc(c.tx_sig)}" target="_blank" rel="noopener">tx</a>` : ""}</p></div>`).join("");
-  return `<div class="million"><div style="font-weight:900;font-size:13px;letter-spacing:.06em">ROAD TO $1,000,000</div><div class="big">${usd(nw.total)}</div><div class="track"><i style="width:${pct}%"></i></div><div style="font-size:12px;font-weight:800;opacity:.85">Golf fund ${usd(nw.fund)} · Cards ${usd(nw.cards)} · Bets ${usd(nw.bets)}${nw.wallet ? " · Wallet " + usd(nw.wallet) : ""}</div></div>
+  return `<div class="million"><div style="font-weight:900;font-size:13px;letter-spacing:.06em">ROAD TO $1,000,000</div><div class="big">${usd(nw.total)}</div><div class="track"><i style="width:${pct}%"></i></div><div style="font-size:12px;font-weight:800;opacity:.85">SOL ${usd(nw.sol)} + cards ${usd(nw.cards)} · wallet value, live on Solana</div></div>
   <p class="disc">Greg is a cartoon frog playing a game. These are paper trades with pretend money, not advice. Visitors cannot invest, bet or earn anything here.</p>
   <div class="sec"><h3>Greg's collection</h3><div class="cards">${cardHTML || '<div class="empty">Empty binder.</div>'}</div></div>
   <div class="sec"><h3>Greg's predictions</h3>${betHTML || '<div class="empty">No predictions yet.</div>'}</div>
@@ -239,7 +241,7 @@ const PICK = {
   predictions: () => { const b = store.positions.filter((p) => p.kind === "bet" && p.status === "open"); return [`Prediction Board`, `<p>"I read the odds like I read a green. Perfectly."</p>${b.slice(0, 3).map((x) => `<p style="font-weight:800">• ${esc(x.name)} <span class="badge paper">${esc(x.side || "")}</span></p>`).join("")}<p class="disc">Paper bets only. Not advice.</p><button class="btn" data-goto="money">See all predictions</button>`]; },
   projects: () => { const p = store.works.filter((w) => ["toy", "code", "golfsim", "course"].includes(w.kind)); return [`The Workbench`, `<p>"I build my own tools. Nobody builds tools like me. Engineers come to me and say, Greg, how?"</p>${p.slice(0, 3).map((x) => `<p style="font-weight:800">• ${esc(x.title)}${demo(x)}</p>`).join("")}<button class="btn" data-goto="works:projects">See his projects</button>`]; },
   diary: () => { const d = store.diary.filter((x) => x.kind === "diary").slice(0, 3); return [`Greg's Diary`, d.map((x) => `<div class="entry diary"><div class="meta">${ago(x.created_at)}</div><p>${esc(x.text)}</p></div>`).join("") + `<button class="btn" data-goto="feed">Read it all</button>`]; },
-  wallet: () => [`The Money Chest`, `<p>"One million dollars. That's the plan. A very simple plan. Very smart."</p><p class="muted">Net worth (paper): <b>${usd(netWorth().total)}</b></p><button class="btn" data-goto="money">Road to $1,000,000</button>`],
+  wallet: () => [`The Money Chest`, `<p>"One million dollars. That's the plan. A very simple plan. Very smart."</p><p class="muted">Wallet value, live on Solana: <b>${usd(realTotal())}</b></p><button class="btn" data-goto="money">Road to $1,000,000</button>`],
   rock: () => [`The Server Rock`, `<p>"My server rock. Very powerful rock. The best rock. I think my brain lives in there. Hi, brain."</p>`],
   home: () => [`Lily-Pad Home`, `<p>"Luxury lily pad. Waterfront. Best views on the pond. I sleep here and dream about golf."</p>`],
   mailbox: () => [`Fan Mailbox`, `<p>"${(store.state?.mail_unread || 0) > 30 ? "So much mail. Nobody gets more fan mail than me. Nobody. It's a lot. Maybe too much." : "Fan mail. Very important. I read every one, eventually."}"</p><p class="muted"><b>${store.state?.mail_unread || 0}</b> notes waiting.</p><button class="btn" data-goto="mail">Leave him a note</button>`],
@@ -272,7 +274,7 @@ onChange((s, what) => {
   if (what === "items" || what === "all") world.setItems(s.items);
   if (what === "ambitions" || what === "all") world.setCareers(s.ambitions);
   if (what === "properties" || what === "all") world.setProperties(s.properties);
-  $("#worthChip").textContent = usd(netWorth().total);
+  $("#worthChip").textContent = usd(realTotal());
   if (what !== "viewers" && what !== "conn" && $("#sheet").classList.contains("open") && !document.activeElement?.matches?.("textarea")) renderTab();
 });
 if (innerWidth >= 900) openTab(tab); else renderTab();
