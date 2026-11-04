@@ -4,16 +4,16 @@ export const KEYMAP = {
   fly: {
     KeyW: "forward", KeyS: "back", KeyA: "left", KeyD: "right", ArrowUp: "forward", ArrowDown: "back", ArrowLeft: "left", ArrowRight: "right",
     Space: "up", ControlLeft: "down", ControlRight: "down", ShiftLeft: "boost", ShiftRight: "boost",
-    KeyE: "rub", KeyF: "interact", KeyC: "perch", KeyV: "view", KeyB: "eyes", KeyM: "map", KeyH: "help", KeyT: "chat", Enter: "chat",
+    KeyE: "rub", KeyF: "interact", KeyC: "perch", KeyV: "view", KeyB: "eyes", KeyM: "map", KeyH: "help", Slash: "help", KeyT: "chat", Enter: "chat",
     KeyQ: "wingL", KeyR: "wingR", KeyZ: "legL", KeyX: "legR", Digit1: "emote1", Digit2: "emote2", Digit3: "emote3", Digit4: "emote4", Escape: "menu",
   },
   perched: {
     KeyW: "forward", KeyS: "back", KeyA: "left", KeyD: "right", ArrowUp: "forward", ArrowDown: "back", ArrowLeft: "left", ArrowRight: "right",
-    Space: "takeoff", ShiftLeft: "boost", ShiftRight: "boost", KeyE: "rub", KeyF: "interact", KeyC: "perch", KeyV: "view", KeyB: "eyes", KeyM: "map", KeyH: "help", KeyT: "chat", Enter: "chat",
+    Space: "takeoff", ShiftLeft: "boost", ShiftRight: "boost", KeyE: "rub", KeyF: "interact", KeyC: "perch", KeyV: "view", KeyB: "eyes", KeyM: "map", KeyH: "help", Slash: "help", KeyT: "chat", Enter: "chat",
     KeyZ: "legL", KeyX: "legR", Digit1: "emote1", Digit2: "emote2", Digit3: "emote3", Digit4: "emote4", Escape: "menu",
   },
   map: { KeyM: "map", Escape: "map" },
-  menu: { Escape: "closeMenu" },
+  menu: { Escape: "closeMenu", KeyH: "help", Slash: "help" },
   typing: { Escape: "closeChat" },
 };
 // a key bound twice inside one context, or two keys fighting over a held action, is a conflict
@@ -30,7 +30,7 @@ export function conflicts() {
 export const CONTROLS = [
   ["Mouse", "Look"], ["WASD", "Fly / walk"], ["Space", "Up"], ["Ctrl", "Down"], ["Shift", "Boost"], ["E", "Rub hands"], ["F", "Interact"],
   ["C", "Land / perch"], ["V", "1st / 3rd person"], ["B", "Fly Eyes 360"], ["M", "Map"], ["Z / X", "Left / right leg"], ["Q / R", "Left / right wing"],
-  ["1-4", "Emotes"], ["H", "Hide this card"], ["Esc", "Menu"],
+  ["1-4", "Emotes"], ["H or ?", "How to fly"], ["Esc", "Menu"],
 ];
 
 export function createInput(canvas) {
@@ -39,7 +39,7 @@ export function createInput(canvas) {
   const touch = { x: 0, y: 0, active: false }; // virtual joystick
   let ctxFn = () => "fly";
   const typing = () => !!document.activeElement?.closest?.("input,textarea,select,[contenteditable=true]");
-  const panelOpen = () => !!document.querySelector("#modal.show, .gmenu.show");
+  const panelOpen = () => !!document.querySelector("#modal.show, .gmenu.show, .ghow.show, .gmap:not(.hide)");
   function context() { if (typing()) return "typing"; if (panelOpen()) return "menu"; return ctxFn(); }
   const emit = (a, e) => { for (const f of handlers.get(a) || []) f(e); };
   addEventListener("keydown", (e) => {

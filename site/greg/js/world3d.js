@@ -621,7 +621,9 @@ export function createWorld(canvas, { onReady, lowPower, onPick, onUserOrbit, on
   let wander = new THREE.Vector2(), wanderT = new THREE.Vector2(), gregSpeed = 0;
   const DOWN = new THREE.Vector3(0, -1, 0), tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3();
   // the brain moves Greg when it ticks; if it has been quiet for 20 min, the deterministic routine takes over
-  function gregPlan(now) { if (st.paused) return st; const stale = now - Date.parse(st.arrive_at) > 20 * 60e3; return stale ? { ...st, ...routineState(now) } : st; }
+  // the hourly schedule drives where Greg is; a fresh brain event (swat, talk, wish, cheer) interrupts for a few minutes, then he resumes
+  const INTERRUPT = /swat|talk|wish|grant|cheer|celebrat|react|event/;
+  function gregPlan(now) { if (st.paused) return st; const fresh = now - Date.parse(st.started_at) < 5 * 60e3 && INTERRUPT.test(st.action || ""); return fresh ? st : { ...st, ...routineState(now) }; }
   function updateGreg(dt, t) {
     const now = Date.now() + clockSkew;
     const S = gregPlan(now); const p = posAt(S, now); const pAhead = posAt(S, now + 450);
@@ -1021,7 +1023,7 @@ function buildNest() {
   }
   drawSign(1);
   g.userData.drawSign = drawSign; g.userData.sign = face;
-  g.userData.spawns = Array.from({ length: 10 }, (_, i) => { const a = (i / 10) * Math.PI * 2; return new THREE.Vector3(Math.sin(a) * 0.55, 1.15 + (i % 2) * 0.12, 0.9 + Math.cos(a) * 0.45); });
+  g.userData.spawns = Array.from({ length: 10 }, (_, i) => { const a = (i / 10) * Math.PI * 2; return new THREE.Vector3(Math.sin(a) * 0.6, 0.85 + (i % 2) * 0.12, 1.75 + Math.cos(a) * 0.4); });
   return g;
 }
 

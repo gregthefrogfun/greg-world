@@ -129,7 +129,7 @@ export function startFlies(world, { input, hud, save, onCount, onRent, onUnpaidN
   let pov = true, third = settings.view === 3;
   function spawnAtNest(announce = true) {
     const pts = world.nestSpawns(); const p = pts[Math.floor(Math.random() * pts.length)];
-    st.pos.copy(p); st.vel.set(0, 0, 0); st.mode = "fly"; st.up.set(0, 1, 0); st.perchOn = null; st.shield = 2; st.roll = 0; st.tumble = 0;
+    st.pos.copy(p); for (let k = 0; k < 10 && phys.nearest(st.pos, RAD * 2); k++) st.pos.y += 0.15; st.vel.set(0, 0, 0); st.mode = "fly"; st.up.set(0, 1, 0); st.perchOn = null; st.shield = 2; st.roll = 0; st.tumble = 0;
     const c = world.nestCenter(); const g = world.gregPos(); st.yaw = Math.atan2(g.x - c.x, g.z - c.z); st.pitch = -0.05;
     burst(p, 0x9cff6b); blip("pop"); if (announce) send("spawn", { i: sid });
   }

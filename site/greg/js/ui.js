@@ -28,7 +28,7 @@ function renderTop() {
   const s = store.state; if (!s) return;
   world.setState(s);
   const moving = Date.parse(s.arrive_at) > Date.now();
-  $("#status").textContent = s.paused ? "Greg is taking a break. His owner paused him." : (s.status_line || "Greg is doing Greg things");
+  const plan = world.gregPlan ? world.gregPlan(Date.now()) : null; $("#status").textContent = s.paused ? "Greg is taking a break. His owner paused him." : plan?.routine ? "Greg: " + plan.label : (s.status_line || "Greg is doing Greg things");
   $("#needs").innerHTML = NEEDS.map(([k, l]) => { const v = Math.round(Number(s.needs?.[k] ?? 50)); return `<div class="need">${l}<div class="bar"><i style="width:${v}%" class="${v < 25 ? "low" : v < 50 ? "mid" : ""}"></i></div></div>`; }).join("");
   $("#mailN").textContent = s.mail_unread ?? 0;
   const say = $("#say"); const line = s.speech;

@@ -85,33 +85,35 @@ export function posAt(state, t) {
 export function routeLength(from, to) { const p = routePts(from, to) || []; let l = 0; for (let i = 0; i < p.length - 1; i++) l += Math.hypot(p[i + 1][0] - p[i][0], p[i + 1][1] - p[i][1]); return l; }
 function dirOf(pts, i) { if (i < 0 || !pts[i + 1]) return 0; return Math.atan2(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]); }
 
-// Deterministic daily routine (utility AI). When the brain hasn't moved Greg for a while, every client computes
-// the same schedule from the clock, so the island keeps living with zero LLM calls.
-const ROUTINE = [
-  ["green", "golf", (h) => (h >= 7 && h < 11 ? 3 : h >= 15 && h < 18 ? 2 : 0.6)],
-  ["bakery", "espresso", (h) => (h >= 6 && h < 10 ? 3.2 : h >= 13 && h < 15 ? 1.5 : 0.3)],
-  ["desk", "browse", (h) => (h >= 10 && h < 17 ? 2 : 0.5)],
-  ["kitchen", "cook", (h) => (h >= 11 && h < 13 ? 2.4 : h >= 18 && h < 20 ? 2.4 : 0.2)],
-  ["nook", "read", (h) => (h >= 19 && h < 23 ? 2 : 0.6)],
-  ["shed", "piano", (h) => (h >= 14 && h < 21 ? 1.4 : 0.4)],
-  ["beach", "relax", (h) => (h >= 16 && h < 19.5 ? 3 : 0.4)],
-  ["art", "draw", (h) => (h >= 9 && h < 18 ? 1 : 0.2)],
-  ["plaza", "wave", () => 1],
-  ["home", "sleep", (h) => (h >= 23 || h < 6 ? 8 : 0.05)],
+// Greg's hourly rhythm: the same six stops every hour, walked along the real paths, so everyone can find him.
+// The schedule is computed from the clock (UTC), so every viewer sees him at the same stop with zero LLM calls.
+export const SCHEDULE = [
+  { min: 0, place: "bakery", action: "espresso", label: "Coffee at the Espresso" },
+  { min: 10, place: "green", action: "golf", label: "Putting green" },
+  { min: 20, place: "desk", action: "tweet", label: "HQ desk: trade or tweet" },
+  { min: 30, place: "bench", action: "draw", label: "Painting at the easel" },
+  { min: 40, place: "plaza", action: "wave", label: "Stone path loop" },
+  { min: 50, place: "edge", action: "relax", label: "Dock and beach" },
 ];
-const SLOT = 150000;
-function rng(n) { let a = (n * 2654435761) >>> 0; return () => { a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
-function pickSlot(n, prev) {
-  const h = new Date(n * SLOT).getUTCHours() + new Date(n * SLOT).getUTCMinutes() / 60, r = rng(n);
-  const opts = ROUTINE.filter((o) => o[0] !== prev); const w = opts.map((o) => o[2](h)); const sum = w.reduce((a, b) => a + b, 0);
-  let x = r() * sum; for (let i = 0; i < opts.length; i++) { x -= w[i]; if (x <= 0) return opts[i]; } return opts[0];
+const NIGHT = { place: "home", action: "sleep", label: "Sleeping at home" };
+function slotAt(now) {
+  const d = new Date(now), h = d.getUTCHours();
+  const night = h >= 23 || h < 6;
+  const i = Math.floor(d.getUTCMinutes() / 10);
+  const start = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), h, i * 10);
+  const cur = night ? NIGHT : SCHEDULE[i];
+  // at the :50 slot he alternates dock and beach by hour
+  const c = cur.place === "edge" && h % 2 ? { ...cur, place: "beach", label: "Beach, then back" } : cur;
+  return { cur: c, start, i, night };
 }
 export function routineState(now) {
-  const n = Math.floor(now / SLOT); let place = "home"; const chain = [];
-  for (let k = n - 6; k <= n; k++) { const o = pickSlot(k, place); chain.push([o[0], o[1]]); place = o[0]; }
-  const [to, action] = chain[chain.length - 1], from = chain[chain.length - 2][0];
-  const start = n * SLOT, walk = (routeLength(from, to) / SCALE.walkSpeed) * 1000;
-  return { from_place: from, place: to, action, started_at: new Date(start).toISOString(), arrive_at: new Date(start + walk).toISOString(), routine: true };
+  const { cur, start } = slotAt(now), prev = slotAt(start - 1).cur;
+  const walk = (routeLength(prev.place, cur.place) / SCALE.walkSpeed) * 1000;
+  return { from_place: prev.place, place: cur.place, action: cur.action, label: cur.label, started_at: new Date(start).toISOString(), arrive_at: new Date(start + walk).toISOString(), routine: true };
+}
+export function scheduleInfo(now) {
+  const { cur, start } = slotAt(now), next = slotAt(start + 10 * 60e3).cur;
+  return { now: cur, next, inMs: start + 10 * 60e3 - now };
 }
 
 export function visitorId() {

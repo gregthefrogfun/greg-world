@@ -1,7 +1,7 @@
 // Flight HUD: controls card (keycaps light up while pressed), glowing-E interaction prompt, onboarding hints,
 // 4-part leg/wing indicator, speed lines, "click to fly" hint, mobile joystick + buttons, island map, local save.
 import { CONTROLS, KEYMAP } from "./input.js";
-import { PLACES } from "./config.js";
+import { PLACES, scheduleInfo, routePts, routineState } from "./config.js";
 
 export function createSave() {
   const KEY = "greg_save"; let data = {};
@@ -27,7 +27,7 @@ export function createHud({ input, save, world }) {
   const card = stop(el(`<section class="gcard" aria-label="Controls"><header><b>Controls</b><button class="gx" aria-label="Hide controls">H</button></header><div class="grows">${CONTROLS.map(([k, l]) => `<div class="grow" data-k="${k}">${keyHtml(k)}<span>${l}</span></div>`).join("")}</div></section>`));
   root.appendChild(card);
   let cardOpen = save.get("cardOpen", true); const setCard = (v) => { cardOpen = v; card.classList.toggle("closed", !v); save.set("cardOpen", v); };
-  setCard(cardOpen); card.querySelector(".gx").onclick = () => setCard(!cardOpen); input.on("help", () => setCard(!cardOpen));
+  setCard(cardOpen); card.querySelector(".gx").onclick = () => setCard(!cardOpen); input.on("help", () => toggleHow());
   const rows = new Map([...card.querySelectorAll(".grow")].map((r) => [r.dataset.k, r]));
   // prompt chip (glowing carved-E style), hints, indicator, click-to-fly, speed lines
   const prompt = el(`<div class="gprompt hide"><kbd class="glow">F</kbd><span></span></div>`); root.appendChild(prompt);
@@ -48,6 +48,49 @@ export function createHud({ input, save, world }) {
   const doneSet = new Set(save.get("hints", [])); if (coarse) doneSet.add("click");
   function nextHint() { const h = HINTS.find(([k]) => !doneSet.has(k)); if (!h) { hint.classList.add("hide"); return; } hint.innerHTML = `<kbd class="glow">${h[0] === "click" ? "🖱" : h[0] === "move" ? "W" : "E"}</kbd>${h[1]}`; hint.classList.remove("hide"); }
   nextHint();
+  // "How to fly": first-load overlay with big keycaps and a tiny animated demo per step; H or ? reopens it
+  const STEPS = coarse ? [
+    ["👆", "Drag to look", "Drag anywhere on the world to turn your head.", "look"],
+    ["🕹", "Joystick to fly", "The joystick on the left moves you around.", "move"],
+    ["Up", "Up and Down", "Hold Up to climb, Down to sink.", "updown"],
+    ["Rub", "Rub your hands", "A fly classic. You can do it mid air.", "rub"],
+    ["Land", "Land anywhere", "Walls, cups, rooftops, even Greg. Then walk around.", "land"],
+    ["👁", "Fly eyes", "See the island the way a fly does.", "eyes"],
+  ] : [
+    ["Click", "Click to fly", "Click the world to grab the mouse. Esc gives it back.", "click"],
+    ["WASD", "Move", "W forward, S back, A and D sideways. Mouse steers.", "move"],
+    ["Space / Ctrl", "Up and down", "Space climbs, Ctrl sinks. Shift boosts.", "updown"],
+    ["E", "Rub your hands", "Hold E. Works while flying.", "rub"],
+    ["C", "Land anywhere", "Walls, cups, rooftops, even Greg. WASD walks, Space takes off.", "land"],
+    ["V", "Camera", "Switch between your fly eyes and a view from behind.", "cam"],
+  ];
+  const how = stop(el(`<div class="ghow" role="dialog" aria-label="How to fly"><div class="ghow-in"><h2>How to fly</h2><p class="sub">You are a fly on Greg's island. Here is everything you need.</p><ol>${STEPS.map(([k, t, d, a]) => `<li><div class="demo d-${a}"><kbd class="big">${k.split(" / ").join("</kbd><kbd class=\"big\">")}</kbd><span class="fx"></span></div><b>${t}</b><span>${d}</span></li>`).join("")}</ol><button class="gotit">Got it</button><p class="sub small">Press ${coarse ? "?" : "H or ?"} any time to see this again.</p></div></div>`));
+  document.body.appendChild(how);
+  function toggleHow(v) { const on = v ?? !how.classList.contains("show"); how.classList.toggle("show", on); if (on) input.release(); }
+  how.querySelector(".gotit").onclick = () => { toggleHow(false); save.set("howSeen", 1); };
+  how.addEventListener("click", (e) => { if (e.target === how) toggleHow(false); });
+  if (!save.get("howSeen", 0)) toggleHow(true);
+  // minimap with Greg's schedule: next stop, countdown, dotted path to it
+  const mini = stop(el(`<div class="gmini"><canvas width="240" height="240"></canvas><div class="gsched"><b>Greg's schedule</b><span class="now"></span><span class="nxt"></span></div></div>`)); root.appendChild(mini);
+  const mm = mini.querySelector("canvas").getContext("2d");
+  let lastMini = 0;
+  function drawMini() {
+    const now = Date.now(), x = mm, W = 240, R = world.R + 2, s = W / 2 / R, c = W / 2; const g = world.gregPos(), me = world.camera.position;
+    x.clearRect(0, 0, W, W); x.save(); x.beginPath(); x.arc(c, c, c - 3, 0, 7); x.clip();
+    x.fillStyle = "#4fb6d6"; x.fillRect(0, 0, W, W); x.fillStyle = "#6cc04a"; x.beginPath(); x.arc(c, c, world.R * s, 0, 7); x.fill();
+    x.fillStyle = "rgba(20,18,24,.55)"; for (const p of Object.values(PLACES)) { x.beginPath(); x.arc(c + p.x * s, c + p.z * s, 2.2, 0, 7); x.fill(); }
+    const info = scheduleInfo(now), plan = world.gregPlan ? world.gregPlan(now) : null;
+    const pts = routePts(info.now.place, info.next.place) || [];
+    x.setLineDash([4, 4]); x.strokeStyle = "#fff"; x.lineWidth = 2.5; x.beginPath(); pts.forEach((p, i) => (i ? x.lineTo(c + p[0] * s, c + p[1] * s) : x.moveTo(c + p[0] * s, c + p[1] * s))); x.stroke(); x.setLineDash([]);
+    const np = PLACES[info.next.place]; if (np) { x.strokeStyle = "#ffd23f"; x.lineWidth = 3; x.beginPath(); x.arc(c + np.x * s, c + np.z * s, 6, 0, 7); x.stroke(); }
+    x.fillStyle = "#3ea24a"; x.strokeStyle = "#141218"; x.lineWidth = 2; x.beginPath(); x.arc(c + g.x * s, c + g.z * s, 6.5, 0, 7); x.fill(); x.stroke();
+    x.fillStyle = "#ff5a4a"; x.beginPath(); x.arc(c + me.x * s, c + me.z * s, 4.5, 0, 7); x.fill(); x.stroke();
+    x.restore(); x.lineWidth = 4; x.strokeStyle = "#141218"; x.beginPath(); x.arc(c, c, c - 3, 0, 7); x.stroke(); x.fillStyle = "#141218"; x.font = "900 16px system-ui"; x.textAlign = "center"; x.fillText("N", c, 18);
+    const m = Math.floor(info.inMs / 60000), sec = Math.floor((info.inMs % 60000) / 1000);
+    const interrupted = plan && !plan.routine;
+    mini.querySelector(".now").textContent = interrupted ? "Busy with something, back soon" : "Now: " + info.now.label;
+    mini.querySelector(".nxt").textContent = `Next: ${info.next.label} in ${m}:${String(sec).padStart(2, "0")}`;
+  }
   // mobile: joystick + labelled buttons
   let mapOpen = false;
   if (coarse) {
@@ -82,6 +125,7 @@ export function createHud({ input, save, world }) {
     done, mapOpen: () => mapOpen, mobile: null,
     prompt: (text, key = "F") => { if (!text) { prompt.classList.add("hide"); return; } prompt.classList.remove("hide"); prompt.lastChild.textContent = text; prompt.firstChild.textContent = key; },
     flight: (f) => {
+      if (performance.now() - lastMini > 250) { lastMini = performance.now(); drawMini(); }
       for (const p of ["legL", "legR", "wingL", "wingR"]) ind.querySelector(`[data-p=${p}]`).classList.toggle("on", !!f[p]);
       stam.firstChild.style.width = Math.round((f.stamina ?? 1) * 100) + "%"; stam.classList.toggle("low", (f.stamina ?? 1) < 0.25);
       lines.style.opacity = f.boost ? Math.min(0.7, (f.speed - 3) / 5).toFixed(2) : 0;
