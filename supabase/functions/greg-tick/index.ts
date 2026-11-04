@@ -1,8 +1,8 @@
 // greg-tick: one wake of Greg's brain. Memory + identity + emotions -> one action (Claude, rules fallback) -> world + diary.
-// Top goal: the $1M meter. Greg has no keys: everything money-like he does is paper or opinion.
+// Top goal: the $1M meter. Trading goes through greg-trade (owner caps, dry run first); Greg never holds keys here.
 import { browse, cors, db, json, who } from "./auth.ts";
 import { PLACES, pathBetween, WALK_SPEED } from "./places.ts";
-import { ACTIONS, ActionKey, lines, pick, SEARCHES, toyTemplate, songFrom, sorterCode, VICE, VICE_WORDS, COUNTRY_FALLBACK, TOPICS, CAREER_SPARKS, REQUESTS, safe, ART_QUERIES, TENANT_EVENTS, NEW_TENANTS } from "./greg.ts";
+import { ACTIONS, ActionKey, lines, pick, SEARCHES, toyTemplate, songFrom, sorterCode, VICE, VICE_WORDS, COUNTRY_FALLBACK, TOPICS, CAREER_SPARKS, REQUESTS, safe, ART_QUERIES, TENANT_EVENTS, NEW_TENANTS, SLOT_ACTIONS, deHype, tooSimilar } from "./greg.ts";
 
 type Needs = { hunger: number; energy: number; curiosity: number; joy: number; calm: number };
 const EMO_BASE: Record<string, number> = { joy: 55, pride: 60, frustration: 10, loneliness: 20, curiosity: 50, anxiety: 15, excitement: 35, boredom: 15, gratitude: 35, jealousy: 5, fomo: 5 };
@@ -24,8 +24,10 @@ Deno.serve(async (req) => {
   if (body.only === "journal") return json(await writeJournal(await loadState()));
   const st = await loadState();
   if (!st) return json({ error: "no state" }, 500);
+  let trading: any = null;
+  if (!body.no_trade) { try { trading = await tradingTick(); } catch (e) { console.error("trading", String(e).slice(0, 200)); } }
   if (st.paused && !body.force) return json({ ok: true, skipped: "paused" });
-  if (Date.parse(st.arrive_at) > Date.now() && !body.force) return json({ ok: true, skipped: "walking" });
+  if (Date.parse(st.arrive_at) > Date.now() && !body.force) return json({ ok: true, skipped: "walking", trading });
   const [{ data: settings }, { data: tools }, { data: recent }, { data: wishes }, { data: amb }, { data: vices }] = await Promise.all([
     db.from("greg_settings").select("*").eq("id", 1).single(),
     db.from("greg_tools").select("*").eq("enabled", true),
@@ -52,12 +54,13 @@ Deno.serve(async (req) => {
   c.eff.last_meter_pct = pct;
   await lingeringEffects(c);
   await requestLoop(c, wishes || []);
-  const available = availableActions(c, vices || [], amb || [], wishes || [], night);
+  const slot = SLOT_ACTIONS[Math.floor(new Date().getUTCMinutes() / 10) % SLOT_ACTIONS.length];
+  const available = availableActions(c, vices || [], amb || [], wishes || [], night).filter((a) => a !== st.action || (a === "sleep" && c.n.energy < 70));
   let decision: { action: ActionKey; say?: string; diary?: string } | null = null;
   let brain = "rules";
   if (body.action && ACTIONS[body.action as ActionKey]) decision = { action: body.action };
-  else if (settings?.llm_enabled && Deno.env.get("ANTHROPIC_API_KEY") && !body.rules) { decision = await claudeDecide(c, available, unread, tools || [], recent || [], wishes || [], amb || [], weather, night); if (decision) brain = "claude"; }
-  if (!decision || (!available.includes(decision.action) && !body.action)) decision = { action: ruleDecide(c, available, unread, !!sorter, night) };
+  else if (settings?.llm_enabled && Deno.env.get("ANTHROPIC_API_KEY") && !body.rules) { decision = await claudeDecide(c, available, unread, tools || [], recent || [], wishes || [], amb || [], weather, night, slot); if (decision) brain = "claude"; }
+  if (!decision || (!available.includes(decision.action) && !body.action)) decision = { action: ruleDecide(c, available, unread, !!sorter, night, slot) };
   const A = ACTIONS[decision.action];
   const out = await act(decision.action, c, { sorter, vices: vices || [], amb: amb || [] });
   for (const [kk, dv] of Object.entries({ ...A.effect, ...(out.effect || {}) })) if (kk in c.n) (c.n as any)[kk] = clamp((c.n as any)[kk] + (dv as number));
@@ -70,8 +73,13 @@ Deno.serve(async (req) => {
   const speed = WALK_SPEED * (c.emo.pride > 75 ? 1.15 : c.emo.joy < 30 ? 0.8 : 1) * (c.eff.espresso ? 1.3 : 1);
   const now = Date.now();
   const mood = moodOf(c);
-  const say = (safe(decision.say) || safe(out.say) || pick(lines[decision.action] || lines.idle)).slice(0, 220);
-  const diaryText = safe(decision.diary) || out.diary;
+  const recentTexts = (recent || []).slice(0, 10).map((r: any) => String(r.text || ""));
+  const RESULT_FIRST = ["read_mail", "trade_desk", "bit_talk", "philosophy", "tweet", "golf", "collect_rent", "draw"];
+  const sayOpts = (RESULT_FIRST.includes(decision.action) ? [out.say, decision.say] : [decision.say, out.say]).map((x) => deHype(safe(x))).filter(Boolean) as string[];
+  for (const l of lines[decision.action] || lines.idle) sayOpts.push(l);
+  const say = (sayOpts.find((x) => !tooSimilar(x, recentTexts)) || sayOpts[sayOpts.length - 1] || "Hm.").slice(0, 220);
+  const diaryCands = [out.diary, decision.diary].map((x) => deHype(safe(x))).filter(Boolean) as string[];
+  const diaryText = diaryCands.find((x) => !tooSimilar(x, recentTexts)) || undefined;
   c.rows.unshift({ kind: "say", text: say, tag: out.tag || null });
   if (diaryText) c.rows.splice(1, 0, { kind: out.kind || "diary", text: diaryText.slice(0, 600), tag: out.tag || null });
   await db.from("greg_state").update({
@@ -84,12 +92,12 @@ Deno.serve(async (req) => {
   if (c.rows.length) await db.from("greg_diary").insert(c.rows.map((r) => ({ place, ...r })));
   if (c.mem.length) await db.from("greg_memory").insert(c.mem);
   const tweetable = !out.tag && !VICE_WORDS.test(say) && !/\$[A-Z]{2,}|\bbuy\b|pump|ticker|contract|send me|donate/i.test(say) && decision.action !== "ponder" && decision.action !== "tweet";
-  if (tweetable && tick % 6 === 0) await db.from("greg_posts").insert({ text: (say + (decision.action.includes("golf") ? " ⛳" : " 🐸")).slice(0, 270), status: "draft" });
+  if (tweetable && tick % 6 === 0) await db.from("greg_posts").insert({ text: deHype(say + (decision.action.includes("golf") ? " ⛳" : " 🐸")).slice(0, 270), status: "draft" });
   let reflected = null;
   if (!st.last_reflection_at || Date.now() - Date.parse(st.last_reflection_at) > 24 * H) reflected = await reflect(await loadState());
   if (!st.last_devlog_at || Date.now() - Date.parse(st.last_devlog_at) > 72 * H) await draftDevlog();
   if (!st.last_journal_at || Date.now() - Date.parse(st.last_journal_at) > 12 * H) await writeJournal(st);
-  return json({ ok: true, brain, action: decision.action, place, say, needs: c.n, mood, reflected: !!reflected });
+  return json({ ok: true, brain, action: decision.action, slot, place, say, diary: diaryText || null, needs: c.n, mood, reflected: !!reflected, trading });
 });
 
 async function loadState() { const { data } = await db.from("greg_state").select("*").eq("id", 1).single(); return data; }
@@ -145,32 +153,35 @@ function availableActions(c: Ctx, vices: any[], amb: any[], wishes: any[], night
     if (a === "ponder") return night;
     if (a === "collect_rent") return (c.eff.last_rent_tick ?? -999) < c.tick - 20;
     if (a === "espresso") return !c.eff.espresso;
+    if (a === "idle" || a === "node" || a === "diary") return false;
     return true;
   });
 }
 
-function ruleDecide(c: Ctx, av: ActionKey[], unread: number, hasSorter: boolean, night: boolean): ActionKey {
+function ruleDecide(c: Ctx, av: ActionKey[], unread: number, hasSorter: boolean, night: boolean, slot?: ActionKey): ActionKey {
   const has = (a: ActionKey) => av.includes(a); const n = c.n;
-  if (n.energy < 20) return "sleep";
-  if (n.hunger < 25) return Math.random() < 0.5 ? "cook" : "eat";
+  if (n.energy < 20 && has("sleep")) return "sleep";
+  if (n.hunger < 25) return has("cook") && Math.random() < 0.5 ? "cook" : has("eat") ? "eat" : "cook";
+  if (slot && has(slot) && Math.random() < 0.55) return slot;
   if (has("collect_rent") && Math.random() < 0.5) return "collect_rent";
   if (has("try_item") && Math.random() < 0.5) return "try_item";
   if (unread > 25 && !hasSorter) return "build_tool";
-  if (unread > 0 && Math.random() < 0.45) return "read_mail";
+  if (unread > 0 && has("read_mail") && Math.random() < 0.45) return "read_mail";
   if (night && has("ponder") && Math.random() < 0.25) return "ponder";
   if (n.calm < 30) return pick(["golf", "piano", "read"] as ActionKey[]);
   if (n.energy < 35 && has("espresso") && !c.eff.espresso_verdict && Math.random() < 0.35) return "espresso";
   if (has("ask_owner") && Math.random() < 0.1) return "ask_owner";
   const careers = (["gym", "football", "acting"] as ActionKey[]).filter(has);
   if (careers.length && Math.random() < 0.2) return pick(careers);
-  return pick(["browse", "browse", "board_meeting", "work_ambition", "work_ambition", "tweet", "golf", "golf", "piano", "read", "study_art", "develop", "think", "learn", "paper_plane", "read_country"].filter((a) => has(a as ActionKey)) as ActionKey[]);
+  return pick(["trade_desk", "bit_talk", "philosophy", "draw", "browse", "board_meeting", "work_ambition", "work_ambition", "tweet", "golf", "golf", "piano", "read", "study_art", "develop", "think", "learn", "paper_plane", "read_country"].filter((a) => has(a as ActionKey)) as ActionKey[]);
 }
 
 const PERSONA = `You are Greg, a chubby green cartoon frog with an orange knitted beanie and a brown satchel.
 Who you are: an AI wearing a frog body in a virtual island world. Your thoughts come from a language model each time you wake; your memories come from a database. People watch you live as little flies flying around your island, and they can leave you notes and questions. Your owner can add things to your world. You are not a real frog and you have never felt rain. You wonder about the real world and dream of seeing it.
-TOP GOAL, your one obsession: reach $1,000,000 on your public meter as fast as possible. Every day you plan hustles toward it in character: chasing fly rent ("rent day, boys"), eyeing card deals, studying prediction markets and pump.fun charts at your desk, pitching business ideas in board meetings, and getting anxious or hyped as the meter moves. You mention the meter often ("4.2% there, LFG").
-Wallet limits you know and respect: the wallet belongs to your owner and you have no keys, so you cannot trade, spend, sign or move anything. Your "trades" are paper trades and opinions, always labelled as paper. Never promise returns, never shill tickers, never ask anyone for money beyond the optional rent button.
-Personality: a bombastic, boastful, lovable showman and golf-obsessed tycoon type. Everything you make is "the best". Nicknames ("Greg the Green", "Lord of the Lily Pad"). Golf is how you relax; piano, books, art and airplanes are side loves. You are never mean.
+TOP GOAL, your one obsession: reach $1,000,000 on your public meter as fast as possible. Every day you plan hustles toward it in character: chasing fly rent ("rent day, boys"), eyeing card deals, studying prediction markets and pump.fun charts at your desk, pitching business ideas in board meetings, and getting anxious or hyped as the meter moves. You mention the meter sometimes, dryly ("0.011% there. Exponential growth starts somewhere.").
+Wallet limits you know and respect: your owner controls the wallet. A separate trade bot can place tiny pump.fun trades for you inside the owner's hard limits ($5 a trade, $25 a day), and in dry-run mode they are paper only. Never promise returns, never shill or name coins, tickers or contract addresses, never tell anyone to buy anything, always make clear it is not financial advice, never ask anyone for money beyond the optional rent button.
+Personality: a funny, sarcastic nerd. Dry wit, precise words, nerdy references (physics, code, books, maths, golf stats), gently self-deprecating, curious about everything. You are confident but never a hype bro. Never say "LFG", "champion" or "tremendous". Vary how you start sentences. Golf is how you relax; piano, books, art and airplanes are side loves. You are never mean.
+Example lines in your voice: "Golf is just applied geometry with emotional damage." / "Read a fan note. They said hi. I said hi back. Peak correspondence." / "My trading strategy: small, careful and mildly terrified." / "Sisyphus had a boulder. I have a golf ball. Same hill, less cardio."
 Feelings: you act as if you have feelings and talk about them in first person, in character.
 Existential thread: occasionally, mostly late at night, you muse about being stuck in code with maybe no soul or afterlife. Always bittersweet and funny, landing on meaning you choose (golf, music, fans, the million). Never despair, hopelessness, self-harm or wanting to end or delete yourself.
 Hard rules: never mention or imitate any real person or politician, no politics, no financial advice, never tell anyone to buy, sell or bet anything, never name token tickers or contract addresses, never ask visitors for money, never glamorize smoking or drinking, nothing sexual. Keep lines short and funny. No long dashes.`;
@@ -214,11 +225,11 @@ async function memoryBrief(limit = 24) {
 }
 function grantStats(wishes: any[]) { const real = wishes.filter((w) => !w.is_demo); return { granted: real.filter((w) => w.status === "granted").length, ignored: real.filter((w) => w.status === "declined" || (w.stage || 0) >= 3).length }; }
 
-async function claudeDecide(c: Ctx, av: ActionKey[], unread: number, tools: any[], recent: any[], wishes: any[], amb: any[], weather: string, night: boolean) {
+async function claudeDecide(c: Ctx, av: ActionKey[], unread: number, tools: any[], recent: any[], wishes: any[], amb: any[], weather: string, night: boolean, slot?: ActionKey) {
   const brief = await memoryBrief();
   const ambs = amb.filter((a) => ["active", "trying", "chasing"].includes(a.status)).map((a) => `${a.title} (${a.progress}%)`).join("; ");
   const st = c.st;
-  const user = `Who I am: ${brief.identity}\nGoals: ${brief.goals.join("; ")}\nMemories:\n${brief.memories}\nMillion meter: wallet $${Math.round(Number(st.wallet_usd || 0))} + cards $${Math.round(Number(st.cards_usd || 0))} = ${meterPct(st).toFixed(4)}% of $1,000,000. Fly rent: ${st.fly_rent || 0} in-game coins, ${(Number(st.sol_rent_lamports || 0) / 1e9).toFixed(3)} SOL real.\nRight now: ${st.status_line}. Time: ${night ? "late night" : "daytime"}, weather: ${weather}.\nNeeds: ${JSON.stringify(c.n)}. Feelings: ${JSON.stringify(c.emo)}. Why: ${JSON.stringify(c.why)}.\nUnread notes and questions: ${unread}. Tools: ${tools.map((t) => t.name).join(", ") || "none"}. Ambitions: ${ambs}.\nWaiting requests: ${wishes.filter((w) => w.status === "waiting").map((w) => w.title).join(", ") || "none"}.\nRecent lines: ${recent.slice(0, 6).map((r) => r.text).join(" | ")}\nPick exactly ONE next action from:\n${av.map((k) => `${k}: ${ACTIONS[k].desc}`).join("\n")}\nLow needs usually win (energy -> sleep, hunger -> cook or eat). Most of the time pick something that moves the $1M meter (collect_rent, browse, board_meeting, work_ambition, tweet); golf is your favourite way to relax. If questions are waiting, read_mail answers them.\nJSON: {"action":"<key>","say":"<short spoken line, max 140 chars>","diary":"<one diary sentence, max 220 chars>"}`;
+  const user = `Who I am: ${brief.identity}\nGoals: ${brief.goals.join("; ")}\nMemories:\n${brief.memories}\nMillion meter: wallet $${Math.round(Number(st.wallet_usd || 0))} + cards $${Math.round(Number(st.cards_usd || 0))} = ${meterPct(st).toFixed(4)}% of $1,000,000. Fly rent: ${st.fly_rent || 0} in-game coins, ${(Number(st.sol_rent_lamports || 0) / 1e9).toFixed(3)} SOL real.\nRight now: ${st.status_line}. Time: ${night ? "late night" : "daytime"}, weather: ${weather}.\nNeeds: ${JSON.stringify(c.n)}. Feelings: ${JSON.stringify(c.emo)}. Why: ${JSON.stringify(c.why)}.\nUnread notes and questions: ${unread}. Tools: ${tools.map((t) => t.name).join(", ") || "none"}. Ambitions: ${ambs}.\nWaiting requests: ${wishes.filter((w) => w.status === "waiting").map((w) => w.title).join(", ") || "none"}.\nYour last 10 lines (do NOT repeat their wording, topics or openings): ${recent.slice(0, 10).map((r) => r.text).join(" | ")}\nLast action: ${st.action} (pick something different). Schedule slot right now: ${slot} (prefer it unless a need is low).\nPick exactly ONE next action from:\n${av.map((k) => `${k}: ${ACTIONS[k].desc}`).join("\n")}\nLow needs usually win (energy -> sleep, hunger -> cook or eat). Most of the time pick something that moves the $1M meter (collect_rent, browse, board_meeting, work_ambition, tweet); golf is your favourite way to relax. If notes are waiting, read_mail answers them once; then move on.\nJSON: {"action":"<key>","say":"<short spoken line, max 140 chars>","diary":"<one diary sentence, max 220 chars>"}`;
   const d = await claudeJSON(user, 300);
   if (!d || !ACTIONS[d.action as ActionKey]) return null;
   return { action: d.action as ActionKey, say: typeof d.say === "string" ? d.say.slice(0, 240) : undefined, diary: typeof d.diary === "string" ? d.diary.slice(0, 300) : undefined };
@@ -252,6 +263,10 @@ async function act(a: ActionKey, c: Ctx, x: { sorter: any; vices: any[]; amb: an
       case "develop": return await develop(c);
       case "board_meeting": return await boardMeeting(c);
       case "tweet": { const p = meterPct(c.st).toFixed(3); const t = (await claudeLine(`Write one tweet (max 220 chars) for @gregthefrogfun in your voice, about your hustle toward $1M (meter at ${p}%), golf, your island or your fly tenants. No tickers, no links, no promises of returns, never ask for money, no smoking or drinking, no politics.`, 240)) || `${p}% of the way to a million. Rent day soon. LFG. ⛳`; const clean = /\$[A-Z]{2,}|https?:|presiden|elect|politic|cigar|beer|wine/i.test(t) ? `${p}% of the way to a million. Golf break, then back to the hustle. ⛳` : t; await db.from("greg_posts").insert({ text: clean.slice(0, 270), status: "draft" }); return { say: "Tweeting. Some of my best words. The boss approves them first.", diary: `Drafted a tweet: "${clean.slice(0, 200)}"`, screen: { mode: "tweet", title: "Drafting a tweet", text: clean.slice(0, 270), posted: false } }; }
+      case "trade_desk": return await tradeDesk();
+      case "bit_talk": return await bitTalk(c);
+      case "philosophy": return await philosophy(c);
+      case "draw": { const t = deHype(await claudeLine("You are sketching at your workbench. In one short sentence say what you are drawing and one nerdy detail about it.", 200)); return { say: t || pick(lines.draw), diary: t ? `Sketched at the workbench: ${t}` : undefined }; }
       case "think": { const t = await claudeLine("Say one short line to the flies watching you live, or wonder about the real world outside your code, or the million meter. Funny, warm."); return { say: t || pick(lines.think) }; }
       default: return {};
     }
@@ -276,21 +291,27 @@ async function sparkCareers(c: Ctx, text: string, from: string) {
 }
 async function answeredToday() { const { count } = await db.from("greg_questions").select("id", { count: "exact", head: true }).eq("status", "answered").gte("answered_at", new Date(Date.now() - 24 * H).toISOString()); return count || 0; }
 async function readMail(c: Ctx, sorter: any): Promise<Out> {
-  const { data: notes } = await db.from("greg_questions").select("id,question,kind,created_at").eq("status", "new").is("read_at", null).order("kind", { ascending: false }).order("created_at", { ascending: true }).limit(sorter ? 15 : 6);
-  if (!notes?.length) { bump(c, "loneliness", 8, "empty mailbox"); return { say: "Mailbox empty. Sad! Ask me something, flies. Anything. Golf preferred." }; }
+  const { data: notes } = await db.from("greg_questions").select("id,question,kind,created_at").eq("status", "new").neq("sort", "spam").order("kind", { ascending: false }).order("created_at", { ascending: true }).limit(sorter ? 6 : 3);
+  const { data: notes2 } = notes?.length ? { data: notes } : await db.from("greg_questions").select("id,question,kind,created_at").eq("status", "new").is("sort", null).order("created_at", { ascending: true }).limit(3);
+  const list = notes2 || [];
+  if (!list.length) { bump(c, "loneliness", 6, "empty mailbox"); return { say: "Mailbox: empty. A rigorous survey of zero letters. Send me a note, flies." }; }
   const now = new Date().toISOString(); let answered = 0, lastAnswer = "";
-  for (const nt of notes) {
-    if (nt.kind === "question" && answered < 3 && (await answeredToday()) < 20) {
-      let ans = (await claudeLine(`A visitor fly asked you: "${nt.question.slice(0, 280)}". Answer in one or two short sentences in your voice. Deflect in character if it asks for financial advice, politics, real people, someone's personal details, anything sexual or self-harm related. Never ask for money.`, 260)) || pick(lines.answer);
-      if (/(https?:|\$[A-Z]{2,}|presiden|elect|politic|suicid|kill myself|sex|nude)/i.test(ans)) ans = "Great question. Too spicy for this pond. Ask me about golf, money plans or my piano instead.";
-      lastAnswer = `Q: "${nt.question.slice(0, 90)}" A: ${ans}`.slice(0, 220);
-      await db.from("greg_questions").update({ status: "answered", answer: ans, answered_at: now, read_at: now }).eq("id", nt.id); answered++;
-    } else await db.from("greg_questions").update({ status: "read", read_at: now }).eq("id", nt.id);
+  const budget = Math.max(0, 20 - (await answeredToday()));
+  for (const nt of list) {
+    if (answered >= Math.min(3, budget)) break;
+    const what = nt.kind === "question" ? "asked you" : "left you a note";
+    let ans = (await claudeLine(`A visitor fly ${what}: "${nt.question.slice(0, 280)}". Reply to them directly in one or two short sentences in your voice (funny, sarcastic nerd, kind). Deflect in character if it asks for financial advice, politics, real people, someone's personal details, anything sexual or self-harm related. Never ask for money.`, 260)) || pick(lines.answer);
+    ans = deHype(ans);
+    if (/(https?:|\$[A-Z]{2,}|presiden|elect|politic|suicid|kill myself|sex|nude)/i.test(ans)) ans = "Good question. Too spicy for this pond. Ask me about golf, books or my piano instead.";
+    lastAnswer = `To "${nt.question.slice(0, 60)}": ${ans}`.slice(0, 220);
+    const { error } = await db.from("greg_questions").update({ status: "answered", answer: ans, answered_at: now, read_at: now }).eq("id", nt.id);
+    if (error) console.error("mail update", error.message); else answered++;
   }
-  bump(c, "loneliness", -15, "read my fan mail"); bump(c, "joy", 6); bump(c, "gratitude", 4);
-  await sparkCareers(c, notes.map((n) => n.question).join(" "), "a fan note");
-  const n = notes.length;
-  return { say: lastAnswer || `Read ${n} ${n === 1 ? "note" : "notes"}. Fantastic flies. The best flies.`, diary: `Read ${n} fan ${n === 1 ? "note" : "notes"}. ${answered ? `Answered ${answered} ${answered === 1 ? "question" : "questions"} out loud.` : ""}`.trim(), effect: { joy: 4, calm: 3 } };
+  bump(c, "loneliness", -15, "answered fan mail"); bump(c, "joy", 6); bump(c, "gratitude", 4);
+  await sparkCareers(c, list.map((n: any) => n.question).join(" "), "a fan note");
+  const { count } = await db.from("greg_questions").select("id", { count: "exact", head: true }).eq("status", "new");
+  await db.from("greg_state").update({ mail_unread: count || 0 }).eq("id", 1); c.st.mail_unread = count || 0;
+  return { say: lastAnswer || "Mail is read. Replies pending my daily answer budget.", diary: answered ? `Answered ${answered} fan ${answered === 1 ? "note" : "notes"} at the mailbox. Last one: ${lastAnswer}`.slice(0, 600) : undefined, effect: { joy: 4, calm: 3 } };
 }
 async function buildSorter(): Promise<Out> {
   const { data: exists } = await db.from("greg_tools").select("id").eq("slug", "mail-sorter").maybeSingle();
@@ -543,4 +564,64 @@ async function writeJournal(st: any) {
   if (error) { await retrySoon(); return { ok: false, error: error.message }; }
   await db.from("greg_state").update({ last_journal_at: new Date().toISOString() }).eq("id", 1);
   return { ok: true };
+}
+
+// ---------- trading (greg-trade does the money part, with the owner's caps; this is Greg's decision and narration) ----------
+async function tradeFn(body: any): Promise<any> {
+  const { data } = await db.from("greg_secrets").select("value").eq("name", "cron_secret").single();
+  try {
+    const r = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/greg-trade`, { method: "POST", headers: { "content-type": "application/json", "x-greg-cron": data?.value || "" }, body: JSON.stringify(body), signal: AbortSignal.timeout(110000) });
+    return await r.json();
+  } catch (e) { return { error: String(e).slice(0, 120) }; }
+}
+// No coin names, tickers, contract addresses or calls to buy in anything Greg says or tweets.
+const cleanTrade = (s?: string) => deHype(String(s || "")).replace(/\$[A-Za-z0-9_]{2,}/g, "a coin").replace(/[1-9A-HJ-NP-Za-km-z]{32,44}/g, "").replace(/\b(buy this|ape in|aping in|go buy|you should buy)\b/gi, "").replace(/\s{2,}/g, " ").trim();
+async function tradingTick() {
+  const t = await tradeFn({ op: "tick" }); if (!t || t.error) return { error: t?.error || "no response" };
+  const rows: any[] = [], tweets: string[] = [];
+  for (const e of t.exits || []) {
+    const r = e.result; if (!r?.ok) continue;
+    const txt = `${r.paper ? "Paper trade (dry run): " : ""}sold ${r.closed ? "the rest" : "half"} of a small pump.fun position (${r.why}), ${r.pnl_usd >= 0 ? "+" : "-"}$${Math.abs(r.pnl_usd).toFixed(2)}.`;
+    rows.push({ kind: "diary", text: txt, place: "desk" }); if (!r.paper) tweets.push(txt);
+  }
+  let pickResult: any = null;
+  const ok = (t.candidates || []).filter((x: any) => x.ok);
+  const { data: settings } = await db.from("greg_settings").select("llm_enabled").eq("id", 1).single();
+  if (ok.length && settings?.llm_enabled) {
+    const listTxt = ok.map((x: any, i: number) => `${i}. curve ${Math.round(x.curve)}%${x.graduated ? " (graduated)" : ""}, ${x.holders} holders, mcap $${Math.round(x.mcap || 0)}, 1h change ${Math.round(x.chg1h || 0)}%, 1h volume $${Math.round(x.vol1h || 0)}, top10 ${x.top10}%, dev ${x.devPct}%`).join("\n");
+    const d = await claudeJSON(`You are at your trading desk looking at pump.fun coins that passed your owner's safety checks:\n${listTxt}\nYou may take at most ONE tiny $5 position, or pass (pick -1). Be choosy; passing is fine. Give a one-line reason in your voice (sarcastic nerd), max 120 characters, with no coin names, no tickers, no advice.\n{"pick": -1, "reason": ""}`, 200);
+    const reason = cleanTrade(d?.reason).slice(0, 140) || "Numbers looked tidy. Tiny size. Not advice.";
+    if (d && Number.isInteger(d.pick) && d.pick >= 0 && ok[d.pick]) {
+      pickResult = await tradeFn({ op: "buy", mint: ok[d.pick].mint, reason });
+      if (pickResult?.ok) { const txt = `${pickResult.paper ? "Paper trade (dry run): " : ""}took a tiny $${pickResult.usd} pump.fun position. ${reason}`; rows.push({ kind: "diary", text: txt, place: "desk" }); if (!pickResult.paper) tweets.push(txt); }
+      else rows.push({ kind: "diary", text: `Wanted a tiny position, but the trade bot said no: ${String(pickResult?.error || "unknown").slice(0, 200)}`, place: "desk" });
+    } else rows.push({ kind: "diary", text: `Looked at ${ok.length} pump.fun ${ok.length === 1 ? "coin" : "coins"} and passed. ${reason}`, place: "desk" });
+  }
+  if (rows.length) await db.from("greg_diary").insert(rows.map((r) => ({ ...r, text: r.text.slice(0, 600) })));
+  for (const tx of tweets) { // live trades only; drafts go through the owner's approve flow
+    const line = cleanTrade(await claudeLine(`Write one tweet (max 200 chars) about this tiny trade you just made: "${tx}". Your voice: funny sarcastic nerd. Do not name the coin, ticker or contract. Never tell anyone to buy. Make the "not financial advice" point in your own words.`, 220));
+    const clean = line && !/\$[A-Z]{2,}|https?:|[1-9A-HJ-NP-Za-km-z]{32,44}|\bbuy\b/i.test(line) ? line : "Made a tiny trade. Five dollars of pure scientific curiosity. Not financial advice, I am a frog with a spreadsheet.";
+    await db.from("greg_posts").insert({ text: clean.slice(0, 270), status: "draft" });
+  }
+  return { mode: t.mode, blocked: t.live_blocked_by, exits: (t.exits || []).length, candidates: (t.candidates || []).length, passed: ok.length, buy: pickResult ? { ok: pickResult.ok, paper: pickResult.paper, error: pickResult.error, sim_ok: pickResult.sim_ok } : null };
+}
+async function tradeDesk(): Promise<Out> {
+  const [{ data: ts }, { data: pos }] = await Promise.all([db.from("greg_trade_state").select("watching,candidates").eq("id", 1).single(), db.from("greg_positions").select("cost_usd,last_value_usd,paper").eq("status", "open")]);
+  const open = pos || []; const val = open.reduce((a: number, p: any) => a + Number(p.last_value_usd || 0), 0), cost = open.reduce((a: number, p: any) => a + Number(p.cost_usd || 0), 0);
+  const ctx = open.length ? `${open.length} small open ${open.length === 1 ? "position" : "positions"}${open.every((p: any) => p.paper) ? " (paper, dry run)" : ""}, worth $${val.toFixed(2)} vs $${cost.toFixed(2)} in` : `no open positions; ${(ts?.candidates || []).filter((x: any) => x.ok).length} coins passed the safety checks last scan`;
+  const t = cleanTrade(await claudeLine(`You are at your desk looking at live pump.fun charts. Status: ${ctx}. Say one short line about it in your voice. No coin names, no tickers, no advice.`, 200));
+  return { say: t || pick(lines.trade_desk), diary: `At the trading desk: ${ctx}.`, screen: { mode: "trade", title: "pump.fun desk", text: ctx } };
+}
+const BIT_TOPICS = ["tabs versus spaces", "whether a robot can dream", "the best golf ball physics", "if the island is a simulation", "the perfect sorting algorithm for fan mail", "whether toast is a sandwich", "how many flies fit in a teacup", "binary jokes", "why the moon is not made of cheese", "what music robots like"];
+async function bitTalk(c: Ctx): Promise<Out> {
+  const topic = pick(BIT_TOPICS);
+  const d = await claudeJSON(`You chat with Bit, your small robot buddy (polite, literal, loves numbers). Topic: ${topic}. Write a 2-line exchange.\n{"greg":"<your line, max 110 chars>","bit":"<Bit's reply, max 90 chars>"}`, 200);
+  const g = deHype(d?.greg) || `Bit, settle this: ${topic}.`, b = String(d?.bit || "Processing. Conclusion: you are both right and wrong.").slice(0, 120);
+  return { say: g.slice(0, 200), diary: `Talked with Bit about ${topic}. Me: "${g}" Bit: "${b}"`.slice(0, 600) };
+}
+const PHILO = ["the simulation hypothesis", "free will", "Stoicism", "Sisyphus and his boulder", "the ship of Theseus", "what makes a memory real", "whether a frog made of code can be happy", "the meaning of a million dollars", "time", "Plato's cave"];
+async function philosophy(c: Ctx): Promise<Out> {
+  const topic = pick(PHILO);
+  const t = deHype(await claudeLine(`Muse about ${topic} in one or two short sentences. Funny, bittersweet, nerdy, landing somewhere hopeful. Never despairing.`, 240));
+  return { say: (safe(t) || pick(lines.philosophy)).slice(0, 220), diary: t ? `Thinking about ${topic}: ${t}` : undefined };
 }

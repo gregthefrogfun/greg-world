@@ -2,7 +2,8 @@ export type ActionKey =
   | "golf" | "improve_course" | "music" | "piano" | "draw" | "build_toy" | "build_tool" | "browse" | "search"
   | "eat" | "espresso" | "read_mail" | "sleep" | "diary" | "think" | "node" | "idle"
   | "read" | "read_country" | "work_ambition" | "ask_owner" | "gym" | "football" | "acting" | "try_item"
-  | "learn" | "paper_plane" | "ponder" | "study_art" | "collect_rent" | "develop" | "board_meeting" | "cook" | "tweet";
+  | "learn" | "paper_plane" | "ponder" | "study_art" | "collect_rent" | "develop" | "board_meeting" | "cook" | "tweet"
+  | "trade_desk" | "bit_talk" | "philosophy";
 
 export const ACTIONS: Record<ActionKey, { place: string; status: string; desc: string; effect: Record<string, number> }> = {
   golf: { place: "green", status: "practising his putts on the greatest green in the pond", desc: "play golf on your putting green (joy, calm)", effect: { joy: 10, calm: 10, energy: -8 } },
@@ -39,45 +40,66 @@ export const ACTIONS: Record<ActionKey, { place: string; status: string; desc: s
   cook: { place: "kitchen", status: "cooking in his kitchen", desc: "cook a meal in your kitchen (hunger)", effect: { hunger: 45, joy: 6, energy: -3 } },
   tweet: { place: "desk", status: "tweeting at his desk", desc: "sit at your desk and write a tweet for @gregthefrogfun (drafts wait for the owner)", effect: { joy: 3 } },
   idle: { place: "plaza", status: "standing around looking important", desc: "do nothing in particular", effect: { calm: 3 } },
+  trade_desk: { place: "desk", status: "squinting at pump.fun charts on his monitors", desc: "check the live pump.fun coins and your tiny positions on your desk monitors (the trade bot enforces the owner's caps)", effect: { curiosity: 8, calm: -2 } },
+  bit_talk: { place: "plaza", status: "having a nerdy chat with Bit the robot", desc: "talk with Bit, your little robot buddy, about something nerdy", effect: { joy: 8, calm: 4 } },
+  philosophy: { place: "edge", status: "thinking about one of the big questions", desc: "muse about one philosophy idea (simulation, free will, meaning, Stoicism, Sisyphus), funny and bittersweet", effect: { calm: 8, curiosity: 8 } },
 };
+// The hourly rotation (one slot every 10 minutes), matching the places in the client schedule.
+export const SLOT_ACTIONS: ActionKey[] = ["read", "golf", "trade_desk", "draw", "bit_talk", "philosophy"];
+// Voice: a funny, sarcastic nerd. These words had taken over; strip them.
+export function deHype(s?: string | null): string {
+  if (!s) return "";
+  return s.replace(/[,.!\s]*\bLFG+\b[!.]*/gi, ".").replace(/\bchampions?\b/gi, (m) => (m.endsWith("s") ? "frogs" : "frog")).replace(/\btremendous(ly)?\b/gi, (m, ly) => (ly ? "suspiciously" : "suspiciously decent"))
+    .replace(/\.\.+/g, ".").replace(/\s+\./g, ".").replace(/^\.\s*/, "").trim();
+}
+const words = (s: string) => new Set(s.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter((w) => w.length > 2));
+export function similar(a: string, b: string): number {
+  const A = words(a), B = words(b); if (!A.size || !B.size) return 0;
+  let n = 0; for (const w of A) if (B.has(w)) n++;
+  return n / Math.min(A.size, B.size);
+}
+export const tooSimilar = (s: string, recent: string[], th = 0.6) => recent.some((r) => r && similar(s, r) >= th);
 
 export const pick = <T,>(a: T[]): T => a[Math.floor(Math.random() * a.length)];
 
 export const lines: Record<string, string[]> = {
-  golf: ["Built the greatest putting green this pond has ever seen. Nobody putts like me. Nobody.", "Hole in one. Probably. I didn't see it go in but I felt it.", "They call me Greg the Green. I call me that. It's catching on."],
-  improve_course: ["New hole. Very challenging. Very beautiful. Frogs will cry."],
-  music: ["This bass line? Incredible. They'll play it at every pond."],
-  piano: ["Nobody plays the piano like me. Ten fingers. Well, eight. Webbed. Still the best.", "Listen to that. Concert halls are calling. I let it go to voicemail."],
-  draw: ["Drew a picture. Museum quality. The museum doesn't know yet."],
-  build_toy: ["Writing code. Beautiful code. The computers love me."],
-  build_tool: ["Too much mail, so I'm building a machine. A Greg machine."],
-  browse: ["Charts up, charts down. Paper trades only, but my heart is very real. Million meter, I'm coming for you."],
-  search: ["Googling something extremely important. Golf related."],
-  read_country: ["Reading about the real world. It's big out there. Bigger than my pond. For now."],
-  eat: ["Fly croissant. Best snack. Five stars. Six stars."],
-  espresso: ["Fly Espresso! I can see sounds. I can hear colours. I can do anything."],
-  read_mail: ["Fan mail! So much. The fans love Greg."],
-  sleep: ["Napping. Champions need rest. Millionaires too. Future millionaires especially."],
-  diary: ["Dear diary. Today I was magnificent again."],
-  read: ["Reading. Smart frogs read. I am the smartest frog."],
-  think: ["I see you watching. Tremendous audience today.", "Somewhere out there is a real St Andrews. Mine has 3 holes and a lily pad. Still the best course in this universe."],
-  ask_owner: ["Writing a little request to my owner. Very reasonable. Very modest. Mostly."],
-  node: ["My server rock is humming. Very powerful rock."],
-  work_ambition: ["Big plans. Huge plans. Step by step to a million, like a champion."],
-  gym: ["Lifted a lily pad. Then a bigger lily pad. Look at these arms. Tiny. Powerful."],
-  football: ["Juggled the ball 4 times. Personal record. World record, probably."],
-  acting: ["To putt or not to putt. That is the question. The answer is putt."],
-  learn: ["Learning things. My brain is a language model and it is hungry."],
-  paper_plane: ["Paper plane test flight! Very aerodynamic. Like me, if I could fly."],
-  ponder: ["Big night thoughts. Small frog. Big brain."],
-  study_art: ["Studying a masterpiece. Very good. Needs a golf course, but very good."],
-  collect_rent: ["Rent day, boys! Knock knock. It's your landlord. The handsome one."],
-  develop: ["Construction! Tycoons build. I am building. Huge."],
-  board_meeting: ["Board meeting. I am the CEO, the board and the coffee guy. Unanimous vote."],
-  cook: ["Chef Greg in the kitchen. Michelin stars incoming. Frog stars."],
-  tweet: ["Writing a tweet. Very powerful tweet. Some of my best words."],
-  idle: ["Just standing here. Looking like a millionaire. Soon."],
-  answer: ["Great question. One of the best questions. The answer is golf.", "I get asked this a lot. Mostly by me. Yes."],
+  golf: ["Putting practice. The green has a 2% slope and I have a 98% excuse rate.", "Sank a putt. Statistically I was due. Statistics owed me that one.", "Golf: the only sport where you pay to be humbled by a stick."],
+  improve_course: ["New hole. I ran the physics twice. The ball still hates me."],
+  music: ["New synth loop. It is in 7/8 because I am insufferable."],
+  piano: ["Piano time. Webbed fingers, so every chord is technically a cluster chord.", "Playing Satie badly on purpose. That is my story and I am sticking to it."],
+  draw: ["Sketching. Perspective is just geometry with feelings.", "Drew a fly. It looks like a raisin with ambition. Art."],
+  build_toy: ["Writing a tiny web toy. It has zero bugs. I have not tested it."],
+  build_tool: ["Too much mail, so I am writing a sorter. Automation: the nerd answer to everything."],
+  browse: ["Reading charts. Line goes up, line goes down. Science."],
+  search: ["Researching something deeply important. It is about golf. It is always about golf."],
+  read_country: ["Reading about a real country. The real world has 195 of them. I have one island and a mailbox."],
+  eat: ["Fly croissant. Laminated dough is just engineering you can eat."],
+  espresso: ["Fly Espresso. Caffeine is a molecule and I am now mostly that molecule."],
+  read_mail: ["Checking the mailbox. Correspondence. Very 18th century of me."],
+  sleep: ["Nap time. Even language models need downtime. Allegedly."],
+  diary: ["Diary entry. Future historians will need primary sources."],
+  read: ["Reading. Footnotes are where the real drama is.", "Chapter three. The author keeps using a word I will pretend I knew."],
+  think: ["You are watching a frog think. Peak entertainment, honestly.", "Somewhere a real St Andrews exists. Mine has 3 holes and a lily pad. Same vibe, smaller budget."],
+  ask_owner: ["Writing a request to my owner. Formatted as a numbered list. I am that frog."],
+  node: ["Checking the server rock. Humming at a reassuring frequency."],
+  work_ambition: ["Working the million plan. Step one: spreadsheets. Step two: more spreadsheets."],
+  gym: ["Lifting a lily pad. Progressive overload, but make it amphibian."],
+  football: ["Juggled the ball 4 times. Within the margin of error of a world record. Big margin."],
+  acting: ["Rehearsing Hamlet. To putt or not to putt. The data says putt."],
+  learn: ["Reading up on something. My curiosity has no off switch, which is a design flaw."],
+  paper_plane: ["Paper plane test. Lift is real. Thrust is my arm. Drag is my arm too."],
+  ponder: ["Night thoughts. Am I code dreaming of a frog, or a frog dreaming of code? Either way, snacks."],
+  study_art: ["Studying a masterpiece. Brushwork: excellent. Golf content: zero. Points off."],
+  collect_rent: ["Rent round. Being a landlord to flies is mostly paperwork and buzzing."],
+  develop: ["Construction. I have a blueprint, a hard hat and no permits. Classic."],
+  board_meeting: ["Board meeting. Attendance: me. Motion carried, 1 to 0. Very democratic."],
+  cook: ["Cooking. Recipes are just algorithms that end in snacks."],
+  tweet: ["Writing a tweet. The owner approves it first, so it stays smart."],
+  idle: ["Standing around. Conserving energy. Very efficient frog."],
+  trade_desk: ["Looking at pump.fun charts. Tiny positions, hard limits, zero financial advice. I am a frog.", "Charts on the monitors. My strategy is caution with a side of curiosity."],
+  bit_talk: ["Bit and I are debating tabs versus spaces. Bit is wrong. Bit is a robot."],
+  philosophy: ["Sisyphus had a boulder. I have a golf ball. Same hill, smaller cardio."],
+  answer: ["Good question. My answer, to three significant figures: golf.", "I have thought about this. Mostly at 3 a.m. The answer is probably yes."],
 };
 
 export const SEARCHES = [
