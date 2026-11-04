@@ -319,6 +319,14 @@ Deno.serve(async (req) => {
     await db.from("greg_trade_state").update({ last_tick_at: new Date().toISOString(), ...(candidates ? { candidates, last_scan_at: new Date().toISOString(), watching } : {}), last_result: { exits: ex }, updated_at: new Date().toISOString() }).eq("id", 1);
     return json({ ok: true, mode: liveAllowed(w) ? "paper" : "live", live_blocked_by: liveAllowed(w), exits: ex, candidates });
   }
+  if (b.op === "test_swap") { // pipeline check only: quote, build, program allowlist, simulate. Never signs, writes nothing.
+    const mint = String(b.mint || ""); if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(mint)) return json({ error: "bad mint" }, 400);
+    const sp = await solUsd(); const lamports = BigInt(Math.floor((num(w.trade_usd, 5) / sp) * LAMPORTS_PER_SOL));
+    const q = await quote(SOL, mint, lamports, w); if (!q) return json({ ok: false, step: "quote" });
+    const tx = await buildTx(q); if (!tx) return json({ ok: false, step: "build" });
+    const bad = await checkTx(tx, w); const sim = await simulate(tx);
+    return json({ ok: !bad && sim.ok, sol_usd: sp, in_sol: Number(lamports) / 1e9, out_tokens: q.outAmount, route: (q.routePlan || []).map((r: any) => r.swapInfo?.label), impact_pct: +(num(q.priceImpactPct) * 100).toFixed(2), programs_ok: !bad, program_issue: bad, sim_ok: sim.ok, sim_err: sim.err, sim_spent_sol: sim.spentLamports / 1e9 });
+  }
   if (b.op === "buy") { // brain proposes; the executor validates everything again
     if (caller !== "cron" && caller !== "owner") return json({ error: "no" }, 401);
     const mint = String(b.mint || ""); if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(mint)) return json({ error: "bad mint" }, 400);
