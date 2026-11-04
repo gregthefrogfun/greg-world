@@ -58,7 +58,8 @@
       <section class="card panel"><h2>Fan mailbox</h2><div id="mail" class="scroll"></div></section>
       <section class="card panel"><h2>Greg's X account</h2><div id="x"></div><div id="posts" class="scroll" style="margin-top:10px"></div></section>
     </div>
-    <section class="card panel"><h2>Wallet (phase 2, off by default)</h2><div id="wallet"></div></section>
+    <section class="card panel"><h2>Trading (pump.fun)</h2><div id="trading"><p class="muted">Loading…</p></div></section>
+    <section class="card panel"><h2>Wallet (marketplace spending)</h2><div id="wallet"></div></section>
   </div>
 </main>
 <script type="module">
@@ -88,7 +89,41 @@ $("keyGo").onclick = async () => { KEY = $("key").value.trim(); try { localStora
 $("emailGo").onclick = async () => { const { error } = await sb.auth.signInWithOtp({ email: $("email").value.trim(), options: { emailRedirectTo: location.href.split("#")[0], shouldCreateUser: false } }); $("loginMsg").textContent = error ? error.message : "Check your inbox for the sign in link."; };
 $("logout").onclick = async () => { try { localStorage.removeItem("greg_admin_key"); } catch {} KEY = null; await sb.auth.signOut(); showLogin(); };
 
-async function refresh() { D = await call("overview"); render(); }
+async function tcall(op, extra = {}) {
+  const h = { "content-type": "application/json", apikey: SUPABASE_ANON };
+  if (KEY) h["x-greg-key"] = KEY;
+  const { data } = await sb.auth.getSession(); if (data.session) h.authorization = "Bearer " + data.session.access_token;
+  const r = await fetch(FN + "/greg-trade", { method: "POST", headers: h, body: JSON.stringify({ op, ...extra }) });
+  const j = await r.json().catch(() => ({}));
+  if (j.error) alert(j.error);
+  return j;
+}
+const CAPS = [["trade_usd", "Per trade ($)"], ["trade_daily_usd", "Per day ($)"], ["trade_max_open", "Max open positions"], ["trade_reserve_sol", "Keep for fees (SOL)"], ["trade_slippage_bps", "Slippage cap (bps)"], ["trade_min_curve_pct", "Min curve progress (%)"], ["trade_min_holders", "Min holders"], ["trade_max_dev_pct", "Max dev holding (%)"], ["trade_max_top10_pct", "Max top 10 (%)"], ["trade_tp_pct", "Take profit, sell half (+%)"], ["trade_sl_pct", "Stop loss (-%)"], ["trade_time_stop_h", "Time stop (hours)"], ["trade_scan_every_min", "Scan every (min)"]];
+async function renderTrading() {
+  const T = await tcall("status"); if (!T || T.error) { $("trading").innerHTML = `<p class="no">Could not load trading status.</p>`; return; }
+  const [{ data: pos }, { data: tr }] = await Promise.all([sb.from("greg_trade_positions").select("*").eq("status", "open").order("opened_at", { ascending: false }), sb.from("greg_trades").select("*").order("created_at", { ascending: false }).limit(12)]);
+  const on = T.enabled && !T.kill_switch && !T.dry_run;
+  const money = (v) => (v == null ? "?" : "$" + Number(v).toFixed(2));
+  $("trading").innerHTML = `<p style="font-size:22px;font-weight:900">Trading: <span class="${on ? "ok" : "no"}">${on ? "ON (live)" : "OFF"}</span>${!on && T.dry_run ? ' <span class="muted" style="font-size:15px">· dry run (paper) is on</span>' : ""}</p>
+  <p class="muted">${on ? "Greg can place real trades inside the caps below." : "Live trading is blocked: " + esc(T.live_blocked_by || "")}</p>
+  <p>Wallet: <code style="word-break:break-all">${esc(T.address)}</code> · ${T.balance_sol != null ? T.balance_sol.toFixed(4) + " SOL" : "balance ?"} · key matches: ${yes(T.key_matches)}</p>
+  <p>Today: <b>${money(T.spent_today_usd)}</b> of ${money(T.caps.trade_daily_usd)} live · ${money(T.paper_spent_today_usd)} paper · open: ${T.open_live} live, ${T.open_paper} paper (max ${T.caps.trade_max_open})</p>
+  <div class="row" style="margin-top:8px;gap:14px"><label class="row" style="font-weight:900"><input type="checkbox" id="tOn" ${T.enabled ? "checked" : ""}> Trading enabled</label><label class="row" style="font-weight:900"><input type="checkbox" id="tKill" ${T.kill_switch ? "checked" : ""}> Kill switch</label><label class="row" style="font-weight:900"><input type="checkbox" id="tDry" ${T.dry_run ? "checked" : ""}> Dry run (paper only)</label></div>
+  <div class="row" style="margin-top:8px;flex-wrap:wrap">${CAPS.map(([k, l]) => `<label class="f" style="max-width:150px">${l}<input id="c_${k}" type="number" step="any" value="${T.caps[k]}"></label>`).join("")}</div>
+  <button class="btn" id="tSave" style="margin-top:10px">Save trading settings</button>
+  <h3 style="font-family:var(--font-head);font-weight:400;font-size:22px;margin:14px 0 6px">Open positions</h3>
+  ${(pos || []).map((p) => `<div class="item"><b>${esc(p.symbol || "?")}</b> ${p.paper ? '<span class="badge">paper</span>' : ""} · in ${money(p.cost_usd)} · now ${money(p.last_value_usd)} · ${p.opened_on_curve ? "bought on curve" : "graduated"} · <a href="https://pump.fun/coin/${encodeURIComponent(p.mint)}" target="_blank" rel="noopener">pump.fun</a><p class="muted">${esc(p.reason || "")}</p></div>`).join("") || "<p class='muted'>None.</p>"}
+  <h3 style="font-family:var(--font-head);font-weight:400;font-size:22px;margin:14px 0 6px">Recent trades</h3>
+  ${(tr || []).map((t) => `<div class="item"><p class="muted">${ago(t.created_at)} · ${t.side} ${t.paper ? "· paper" : ""}${t.signature ? ` · <a href="https://solscan.io/tx/${encodeURIComponent(t.signature)}" target="_blank" rel="noopener">tx</a>` : ""}</p><p><b>${esc(t.symbol || "?")}</b> ${money(t.amount_usd)}${t.pnl_usd != null ? ` · PnL ${money(t.pnl_usd)}` : ""} · ${esc(t.reason || "")}${t.note ? `<br><span class="muted">${esc(t.note)}</span>` : ""}</p></div>`).join("") || "<p class='muted'>No trades yet.</p>"}`;
+  $("tSave").onclick = async () => {
+    const goingLive = $("tOn").checked && !$("tKill").checked && !$("tDry").checked;
+    if (goingLive && !confirm(`This lets Greg trade real SOL: up to $${$("c_trade_usd").value} a trade and $${$("c_trade_daily_usd").value} a day. Continue?`)) return;
+    const body = { enabled: $("tOn").checked, kill_switch: $("tKill").checked, trade_dry_run: $("tDry").checked };
+    for (const [k] of CAPS) body[k] = Number($("c_" + k).value);
+    await tcall("settings", body); renderTrading();
+  };
+}
+async function refresh() { D = await call("overview"); render(); renderTrading(); }
 const yes = (v) => v ? '<span class="ok">yes</span>' : '<span class="no">no</span>';
 function render() {
   const s = D.state, st = D.settings, w = D.wallet, h = D.health;

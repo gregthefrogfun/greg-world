@@ -61,6 +61,11 @@ Deno.serve(async (req) => {
   if (body.action && ACTIONS[body.action as ActionKey]) decision = { action: body.action };
   else if (settings?.llm_enabled && Deno.env.get("ANTHROPIC_API_KEY") && !body.rules) { decision = await claudeDecide(c, available, unread, tools || [], recent || [], wishes || [], amb || [], weather, night, slot); if (decision) brain = "claude"; }
   if (!decision || (!available.includes(decision.action) && !body.action)) decision = { action: ruleDecide(c, available, unread, !!sorter, night, slot) };
+  // hard needs win over the model: an exhausted or starving frog does not throw paper planes
+  if (!body.action) {
+    if (c.n.energy < 15 && available.includes("sleep") && decision.action !== "sleep") decision = { action: "sleep" };
+    else if (c.n.hunger < 15 && !["eat", "cook"].includes(decision.action)) { const f = (["cook", "eat"] as ActionKey[]).filter((a) => available.includes(a)); if (f.length) decision = { action: pick(f) }; }
+  }
   const A = ACTIONS[decision.action];
   const out = await act(decision.action, c, { sorter, vices: vices || [], amb: amb || [] });
   for (const [kk, dv] of Object.entries({ ...A.effect, ...(out.effect || {}) })) if (kk in c.n) (c.n as any)[kk] = clamp((c.n as any)[kk] + (dv as number));
@@ -606,7 +611,7 @@ async function tradingTick() {
   return { mode: t.mode, blocked: t.live_blocked_by, exits: (t.exits || []).length, candidates: (t.candidates || []).length, passed: ok.length, buy: pickResult ? { ok: pickResult.ok, paper: pickResult.paper, error: pickResult.error, sim_ok: pickResult.sim_ok } : null };
 }
 async function tradeDesk(): Promise<Out> {
-  const [{ data: ts }, { data: pos }] = await Promise.all([db.from("greg_trade_state").select("watching,candidates").eq("id", 1).single(), db.from("greg_positions").select("cost_usd,last_value_usd,paper").eq("status", "open")]);
+  const [{ data: ts }, { data: pos }] = await Promise.all([db.from("greg_trade_state").select("watching,candidates").eq("id", 1).single(), db.from("greg_trade_positions").select("cost_usd,last_value_usd,paper").eq("status", "open")]);
   const open = pos || []; const val = open.reduce((a: number, p: any) => a + Number(p.last_value_usd || 0), 0), cost = open.reduce((a: number, p: any) => a + Number(p.cost_usd || 0), 0);
   const ctx = open.length ? `${open.length} small open ${open.length === 1 ? "position" : "positions"}${open.every((p: any) => p.paper) ? " (paper, dry run)" : ""}, worth $${val.toFixed(2)} vs $${cost.toFixed(2)} in` : `no open positions; ${(ts?.candidates || []).filter((x: any) => x.ok).length} coins passed the safety checks last scan`;
   const t = cleanTrade(await claudeLine(`You are at your desk looking at live pump.fun charts. Status: ${ctx}. Say one short line about it in your voice. No coin names, no tickers, no advice.`, 200));

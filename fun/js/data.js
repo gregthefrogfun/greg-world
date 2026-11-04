@@ -34,7 +34,7 @@ async function loadAll(parts) {
   const jobs = [];
   if (!parts || parts.includes("state")) jobs.push(sb.from("greg_state").select("*").eq("id", 1).maybeSingle().then(({ data }) => { if (data) store.state = data; }));
   if (!parts || parts.includes("settings")) jobs.push(sb.from("greg_settings").select("*").eq("id", 1).maybeSingle().then(({ data }) => { store.settings = data; }));
-  if (!parts || parts.includes("wallet")) jobs.push(sb.from("greg_wallet").select("address,enabled,kill_switch,daily_cap_sol,per_tx_cap_sol,approval_threshold_sol,balance_sol,balance_at").eq("id", 1).maybeSingle().then(({ data }) => { store.wallet = data; }));
+  if (!parts || parts.includes("wallet")) jobs.push(sb.from("greg_wallet").select("address,enabled,kill_switch,trade_dry_run,trade_usd,trade_daily_usd,daily_cap_sol,per_tx_cap_sol,approval_threshold_sol,balance_sol,balance_at").eq("id", 1).maybeSingle().then(({ data }) => { store.wallet = data; }));
   for (const [k, [t, o, n]] of Object.entries(LIST)) if (!parts || parts.includes(k)) jobs.push(sb.from(t).select("*").order(o, { ascending: false }).limit(n).then(({ data }) => { if (data) store[k] = data; }));
   if (!parts || parts.includes("answers")) jobs.push(sb.from("greg_questions").select("id,created_at,question,kind,status,answer,answered_at").eq("status", "answered").order("answered_at", { ascending: false }).limit(20).then(({ data }) => { if (data) store.answers = data; }));
   await Promise.all(jobs);

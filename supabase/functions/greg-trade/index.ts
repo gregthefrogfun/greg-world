@@ -108,7 +108,7 @@ async function screen(mint: string, w: any) {
   const devPct = Math.max(devHold, devBal, num(s.audit.devBalancePercentage));
   if (devPct >= num(w.trade_max_dev_pct, 10)) fails.push(`dev holds ${devPct.toFixed(1)}%`);
   const risks = (rc.risks || []).filter((r: any) => !(!s.graduated && /liquidity|\bLP\b/i.test(r.name || "")));
-  const bundle = num(rc.graphInsidersDetected) > 0 || risks.some((r: any) => /bundle|insider|sniper/i.test(r.name || ""));
+  const bundle = num(rc.graphInsidersDetected) > 0 || risks.some((r: any) => /bundle|insider|sniper/i.test(r.name || "")) || num(s.audit.sniperPct) >= 20 || num(s.audit.botHoldersPercentage) >= 20;
   if (bundle) fails.push("bundle or insider flag");
   const danger = risks.filter((r: any) => r.level === "danger").map((r: any) => r.name);
   if (danger.length) fails.push("rugcheck danger: " + danger.join(", ").slice(0, 80));
@@ -122,7 +122,7 @@ async function spentToday(paper: boolean) {
   return (data || []).reduce((a: number, r: any) => a + num(r.amount_usd), 0);
 }
 async function openPositions(paper?: boolean) {
-  let q = db.from("greg_positions").select("*").eq("status", "open"); if (paper !== undefined) q = q.eq("paper", paper);
+  let q = db.from("greg_trade_positions").select("*").eq("status", "open"); if (paper !== undefined) q = q.eq("paper", paper);
   const { data } = await q.order("opened_at"); return data || [];
 }
 function liveAllowed(w: any) {
@@ -208,7 +208,7 @@ async function buy(w: any, mint: string, reason: string) {
   }
   const decimals = 6; // pump.fun coins use 6 decimals
   const price = usd / (Number(tokens) / 10 ** decimals);
-  const { data: pos } = await db.from("greg_positions").insert({ mint, symbol: sc.info?.symbol, name: sc.info?.name, icon: sc.info?.icon, paper, tokens_raw: tokens.toString(), decimals, cost_usd: usd, cost_sol: Number(lamports) / 1e9, entry_price_usd: price, last_price_usd: price, last_value_usd: usd, curve_pct: sc.info?.curve, opened_on_curve: !sc.info?.graduated, reason: reason.slice(0, 200) }).select().single();
+  const { data: pos } = await db.from("greg_trade_positions").insert({ mint, symbol: sc.info?.symbol, name: sc.info?.name, icon: sc.info?.icon, paper, tokens_raw: tokens.toString(), decimals, cost_usd: usd, cost_sol: Number(lamports) / 1e9, entry_price_usd: price, last_price_usd: price, last_value_usd: usd, curve_pct: sc.info?.curve, opened_on_curve: !sc.info?.graduated, reason: reason.slice(0, 200) }).select().single();
   await db.from("greg_trades").insert({ side: "buy", venue: sc.info?.graduated ? "pumpswap via jupiter" : "pump.fun curve via jupiter", mint, symbol: sc.info?.symbol, name: sc.info?.name, icon: sc.info?.icon, amount_usd: usd, amount_sol: Number(lamports) / 1e9, price_usd: price, signature: sig, reason: reason.slice(0, 200), paper, position_id: pos?.id, tokens_raw: tokens.toString(), mcap_usd: sc.info?.mcap, curve_pct: sc.info?.curve, sim_ok: sim.ok, note });
   if (sig) await log("trade", `bought $${usd} of ${sc.info?.symbol}`, Number(lamports) / 1e9, sig);
   return { ok: true, paper, sig, position: pos?.id, symbol: sc.info?.symbol, usd, sim_ok: sim.ok, sim_err: sim.err };
@@ -234,7 +234,7 @@ async function sell(w: any, p: any, fraction: number, why: string) {
   const share = Number(part) / Number(BigInt(p.tokens_raw) || 1n);
   const costPart = num(p.cost_usd) * share, pnl = outUsd - costPart;
   const left = BigInt(p.tokens_raw) - part, closed = fraction >= 1 || left <= 0n;
-  await db.from("greg_positions").update({ tokens_raw: closed ? "0" : left.toString(), cost_usd: num(p.cost_usd) - costPart, realized_usd: num(p.realized_usd) + pnl, took_profit: p.took_profit || why === "take profit", status: closed ? "closed" : "open", closed_at: closed ? new Date().toISOString() : null, close_reason: closed ? why : null }).eq("id", p.id);
+  await db.from("greg_trade_positions").update({ tokens_raw: closed ? "0" : left.toString(), cost_usd: num(p.cost_usd) - costPart, realized_usd: num(p.realized_usd) + pnl, took_profit: p.took_profit || why === "take profit", status: closed ? "closed" : "open", closed_at: closed ? new Date().toISOString() : null, close_reason: closed ? why : null }).eq("id", p.id);
   await db.from("greg_trades").insert({ side: "sell", venue: "jupiter", mint: p.mint, symbol: p.symbol, name: p.name, icon: p.icon, amount_usd: outUsd, amount_sol: Number(q.outAmount) / 1e9, price_usd: outUsd / (Number(part) / 10 ** num(p.decimals, 6)), pnl_usd: pnl, signature: sig, reason: why, paper, position_id: p.id, tokens_raw: part.toString(), sim_ok: sim.ok, note: paper ? "dry run" : null });
   if (sig) await log("trade", `sold ${fraction >= 1 ? "all" : "half"} of ${p.symbol} (${why})`, Number(q.outAmount) / 1e9, sig);
   return { ok: true, paper, sig, symbol: p.symbol, why, pnl_usd: +pnl.toFixed(2), closed };
@@ -247,7 +247,7 @@ async function exits(w: any) {
     const value = q ? (Number(q.outAmount) / 1e9) * sp : null;
     const pl = await pool(p.mint); const s = pl ? slim(pl) : null;
     const price = value != null ? value / (Number(tokens) / 10 ** num(p.decimals, 6)) : num(s?.price, null as any);
-    await db.from("greg_positions").update({ last_price_usd: price, last_value_usd: value, last_checked_at: new Date().toISOString(), curve_pct: s?.curve ?? p.curve_pct }).eq("id", p.id);
+    await db.from("greg_trade_positions").update({ last_price_usd: price, last_value_usd: value, last_checked_at: new Date().toISOString(), curve_pct: s?.curve ?? p.curve_pct }).eq("id", p.id);
     if (value == null) { out.push({ id: p.id, symbol: p.symbol, note: "no quote, holding" }); continue; }
     const pnlPct = ((value - num(p.cost_usd)) / Math.max(1e-9, num(p.cost_usd))) * 100;
     const ageH = (Date.now() - Date.parse(p.opened_at)) / H;

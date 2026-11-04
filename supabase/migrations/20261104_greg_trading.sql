@@ -19,16 +19,17 @@ alter table public.greg_wallet
 -- Greg's existing wallet (public address only). Prevents a new wallet from ever being generated.
 update public.greg_wallet set address = 'CNAg1pWXsyakdDr2XfVQqDWkdzY9mQpbYBTBxgc1oppf' where id = 1 and address is null;
 
-create table if not exists public.greg_positions (
+-- (greg_positions already exists for the paper portfolio, so live/paper trade positions get their own table)
+create table if not exists public.greg_trade_positions (
   id bigserial primary key, opened_at timestamptz not null default now(), mint text not null, symbol text, name text, icon text,
   paper boolean not null default false, status text not null default 'open' check (status in ('open','closed')),
   tokens_raw numeric not null, decimals int, cost_usd numeric, cost_sol numeric, entry_price_usd numeric,
   took_profit boolean not null default false, realized_usd numeric not null default 0,
   last_price_usd numeric, last_value_usd numeric, last_checked_at timestamptz, curve_pct numeric, opened_on_curve boolean,
   closed_at timestamptz, close_reason text, reason text);
-alter table public.greg_positions enable row level security;
-drop policy if exists "public read positions" on public.greg_positions;
-create policy "public read positions" on public.greg_positions for select using (true);
+alter table public.greg_trade_positions enable row level security;
+drop policy if exists "public read trade positions" on public.greg_trade_positions;
+create policy "public read trade positions" on public.greg_trade_positions for select using (true);
 
 alter table public.greg_trades
   add column if not exists position_id bigint, add column if not exists tokens_raw numeric, add column if not exists mcap_usd numeric,
