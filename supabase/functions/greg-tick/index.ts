@@ -182,6 +182,7 @@ async function claude(system: string, user: string, max = 300): Promise<string |
     const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" }, body: JSON.stringify({ model: Deno.env.get("GREG_MODEL") ?? "claude-haiku-5-5", max_tokens: max, system, messages: [{ role: "user", content: user }] }), signal: AbortSignal.timeout(max > 600 ? 50000 : 25000) });
     if (!r.ok) { const t = (await r.text()).slice(0, 200); lastLLMErr = "http " + r.status + " " + (t.match(/"type":"([a-z_]+)"/g) || []).slice(-1).join(""); console.error("anthropic", r.status, t); return null; }
     const j = await r.json();
+    lastLLMErr = "empty: stop=" + j.stop_reason + " types=" + (j.content ?? []).map((x: any) => x.type).join(",") + " model=" + j.model;
     return (j.content ?? []).filter((x: any) => x.type === "text").map((x: any) => x.text).join("").replace(/[–—]/g, ",").trim() || null;
   } catch (e) { lastLLMErr = String(e).slice(0, 80); console.error("claude", String(e)); return null; }
 }
