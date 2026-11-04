@@ -13,5 +13,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npx -y netlify-cli@17.38.1 deploy --dir=fun --prod --site=48a83aba-0294-40fb-81f3-fbeffd593e18 --auth=${{ secrets.NETLIFY_AUTH_TOKEN }} --message "${{ github.sha }}"
+      - run: npx -y netlify-cli@17.38.1 deploy --dir=fun --prod --site=48a83aba-0294-40fb-81f3-fbeffd593e18 --auth=${{ secrets.NETLIFY_AUTH_TOKEN || secrets.GREG1 }} --message "${{ github.sha }}"
 # deploy 2026-11-04T10:03:10
