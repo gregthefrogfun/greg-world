@@ -29,8 +29,8 @@ Deno.serve(async (req) => {
   let b64: string, bytes: number;
   if (TEXT.test(path)) {
     const text = String(b.content ?? ""); if (!text.trim()) return json({ ok: false, error: "empty" }, 400);
-    if (BLOCK.test(text) || B58_LONG.test(text) || /[–—]/.test(text) || BLOCK.test(message)) return json({ ok: false, error: "blocked by content filter" }, 400);
-    const enc = new TextEncoder().encode(text); bytes = enc.length; b64 = btoa(String.fromCharCode(...enc));
+    if (BLOCK.test(text) || B58_LONG.test(text) || /[\u2013\u2014]/.test(text) || BLOCK.test(message)) return json({ ok: false, error: "blocked by content filter" }, 400);
+    const enc = new TextEncoder().encode(text); bytes = enc.length; let bin = ""; for (const c of enc) bin += String.fromCharCode(c); b64 = btoa(bin);
   } else {
     b64 = String(b.base64 || "").replace(/^data:[^,]+,/, ""); bytes = Math.floor((b64.length * 3) / 4);
     if (!/^[A-Za-z0-9+/=]+$/.test(b64)) return json({ ok: false, error: "bad base64" }, 400);
@@ -38,7 +38,8 @@ Deno.serve(async (req) => {
   if (bytes > MAX_BYTES) return json({ ok: false, error: "file over 200 KB" }, 400);
   // daily cap (UTC day), counted from the upload log
   const since = new Date(); since.setUTCHours(0, 0, 0, 0);
-  const { count } = await db.from("greg_uploads").select("id", { count: "exact", head: true }).gte("created_at", since.toISOString()).eq("ok", true);
+  const { count, error: cErr } = await db.from("greg_uploads").select("id", { count: "exact", head: true }).gte("created_at", since.toISOString()).eq("ok", true);
+  if (cErr) return json({ ok: false, error: "upload log table missing" }, 500);
   if ((count ?? 0) >= PER_DAY) return json({ ok: false, error: "daily limit reached (3)" }, 429);
   const gh = (url: string, init: RequestInit = {}) => fetch("https://api.github.com/repos/" + repo + "/contents/" + encodeURI(path) + url, { ...init, headers: { authorization: "Bearer " + token, accept: "application/vnd.github+json", "user-agent": "gregthefrog.fun", "x-github-api-version": "2022-11-28", ...(init.headers || {}) } });
   // never overwrite: anything at that path means refuse
