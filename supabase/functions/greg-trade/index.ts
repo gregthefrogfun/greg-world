@@ -110,7 +110,7 @@ async function screen(mint: string, w: any) {
   if (devPct >= num(w.trade_max_dev_pct, 10)) fails.push(`dev holds ${devPct.toFixed(1)}%`);
   const risks = (rc.risks || []).filter((r: any) => !(!s.graduated && /liquidity|\bLP\b/i.test(r.name || "")));
   // many wallets holding the exact same amount = a bundled or airdropped distribution
-  const sameAmt = new Map<string, number>(); for (const h of holders.slice(0, 25)) sameAmt.set(String(h.amount), (sameAmt.get(String(h.amount)) || 0) + 1);
+  const sameAmt = new Map<string, number>(); for (const h of holders.slice(0, 25)) { const k = num(h.pct).toFixed(3); if (num(h.pct) > 0.005) sameAmt.set(k, (sameAmt.get(k) || 0) + 1); }
   const clones = Math.max(0, ...sameAmt.values());
   const bundle = clones >= 5 || num(rc.graphInsidersDetected) > 0 || risks.some((r: any) => /bundle|insider|sniper/i.test(r.name || "")) || num(s.audit.sniperPct) >= 20 || num(s.audit.botHoldersPercentage) >= 20;
   if (bundle) fails.push("bundle or insider flag");
