@@ -189,7 +189,7 @@ export function startFlies(world, { input, hud, save, onCount, onRent, onUnpaidN
   }
   function perchAt(point, normal, cap) {
     st.mode = "perch"; st.vel.set(0, 0, 0); st.up.copy(normal); st.pos.copy(point).addScaledVector(normal, RAD); st.landing = 1; st.perchOn = cap ? "greg" : null;
-    if (cap) { const g = world.greg; g.updateMatrixWorld(); st.perchLocal = g.worldToLocal(st.pos.clone()); st.perchNLocal = normal.clone().applyQuaternion(g.getWorldQuaternion(new THREE.Quaternion()).invert()); }
+    if (cap) { const g = cap.obj || world.greg; st.perchObj = g; g.updateMatrixWorld(); st.perchLocal = g.worldToLocal(st.pos.clone()); st.perchNLocal = normal.clone().applyQuaternion(g.getWorldQuaternion(new THREE.Quaternion()).invert()); }
     blip("tap"); setTimeout(() => blip("tap"), 70); hud.done("perch"); if (perchAt.impact != null && perchAt.impact < 0.6) hud.trick && hud.trick("Soft landing +10"); perchAt.impact = null;
   }
   function takeoff() {
@@ -222,6 +222,8 @@ export function startFlies(world, { input, hud, save, onCount, onRent, onUnpaidN
     else if (e.kind === "menu") onInspect && onInspect("Espresso menu", `<p style="font-weight:800">Espresso · 2 crumbs<br>Flat white · 3<br>Fly-ccino · 4<br>Golden-hour latte · 4<br>Croissant · 3<br>Lily-pad tart · 3</p><p class="muted">Prices in crumbs. Crumbs are pretend. Coffee is real (to frogs).</p>`);
     else if (e.kind === "bulb") { const b = e.obj; b.userData.swing = 1.4; blip("tap"); }
     else if (e.kind === "coffee") { st.caffeine = 15; toast && toast("Caffeinated! Wings at 140% for 15 s."); blip("chime"); }
+    else if (e.kind === "diary") { sb.from("greg_journal").select("title,body,created_at,mood").order("created_at", { ascending: false }).limit(1).then(({ data }) => { const j = data?.[0]; const esc2 = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); onInspect && onInspect("Greg's diary", j ? `<p class="muted">${new Date(j.created_at).toLocaleString()}${j.mood ? " · " + esc2(j.mood) : ""}</p><h3>${esc2(j.title)}</h3><p style="white-space:pre-wrap;font-weight:700">${esc2(j.body)}</p><p><a class="btn alt" href="/journal/">Read all entries</a></p>` : `<p style="font-weight:700">The pages are still blank. Greg writes here once or twice a day.</p>`); }); }
+    else if (e.kind === "screen") { const sc = world.hq.userData.screens[e.screen]; onInspect && onInspect({ charts: "Charts and portfolio", tweets: "Greg's posts", pump: "pump.fun feed", nfts: "Greg's NFTs" }[e.screen], `<img src="${sc.cv.toDataURL()}" alt="" style="width:100%;border:3px solid #141218;border-radius:10px;background:#0d1322">`); }
     else if (e.kind === "wave") emote("wave");
     else if (e.kind === "sign") onInspect && onInspect("The Fly Nest", hud.controlsHtml());
     else if (e.kind === "ball") { const b = world.phys.bodies[0]; if (b) { b.vel.addScaledVector(camFwd().setY(0).normalize(), 1.6); b.sleep = 0; blip("tap"); } }
@@ -353,7 +355,7 @@ export function startFlies(world, { input, hud, save, onCount, onRent, onUnpaidN
       st.dead -= dt; st.vel.y -= 9 * dt; phys.moveSphere(P0, st.vel, RAD, dt, { bounce: 0.3 });
       if (st.dead <= 0) spawnAtNest();
     } else if (st.mode === "perch") {
-      if (st.perchOn === "greg") { const g = world.greg; g.updateMatrixWorld(); P0.copy(g.localToWorld(st.perchLocal.clone())); st.up.copy(st.perchNLocal).applyQuaternion(g.getWorldQuaternion(new THREE.Quaternion())).normalize(); }
+      if (st.perchOn === "greg") { const g = st.perchObj || world.greg; g.updateMatrixWorld(); P0.copy(g.localToWorld(st.perchLocal.clone())); st.up.copy(st.perchNLocal).applyQuaternion(g.getWorldQuaternion(new THREE.Quaternion())).normalize(); }
       let ix = (held("right") ? 1 : 0) - (held("left") ? 1 : 0), iz = (held("forward") ? 1 : 0) - (held("back") ? 1 : 0);
       if ((ix || iz) && st.perchOn !== "greg") {
         const n = st.up; let f = camFwd(); f.addScaledVector(n, -f.dot(n)); if (f.lengthSq() < 1e-4) f = new THREE.Vector3(0, 1, 0).applyQuaternion(qWant).addScaledVector(n, -n.y); f.normalize();

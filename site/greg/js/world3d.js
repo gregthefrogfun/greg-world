@@ -468,6 +468,40 @@ export function createWorld(canvas, { onReady, lowPower, onPick, onUserOrbit, on
   const interactables = [...espresso.userData.interactables, ...hq.userData.interactables];
   const nav = createNav(THREE, phys, { radius: R_ISLAND }); let navGo = false;
   Promise.all(loads).then(() => { rebuildPhysics(); navGo = true; onReady && onReady(); });
+  // ---------- Bit: Greg's little code-agent robot. Knee-high, screen face with pixel eyes, antenna status light,
+  // one wheel, a tool arm. Follows Greg at a polite distance; when Greg sits at work, Bit does small jobs nearby.
+  const bit = buildBit(); bit.position.set(P.plaza.x + 1.5, 0, P.plaza.z + 1); scene.add(bit);
+  const bitS = { v: 0, say: null, sayUntil: 0, job: null, blinkT: 2 };
+  phys.setCapsule("bit", new THREE.Vector3(0, 0.15, 0), new THREE.Vector3(0, 0.55, 0), 0.25, bit);
+  const BIT_JOBS = [["lamp", "tightening a lamp post"], ["plants", "watering the hydrangeas"], ["screen", "scanning the trading screen"], ["codex", "reading the Codex"]];
+  function updateBit(dt, t) {
+    const g = greg.position, b = bit.position, plan = gregPlan(Date.now() + clockSkew), sitting = loco.v < 0.05 && /desk|tweet|browse|trade|draw|golf/.test(plan.action || "");
+    const side = new THREE.Vector3(Math.cos(greg.rotation.y), 0, -Math.sin(greg.rotation.y));
+    let tx = g.x + side.x * 1.2 - Math.sin(greg.rotation.y) * 0.6, tz = g.z + side.z * 1.2 - Math.cos(greg.rotation.y) * 0.6;
+    const slot = Math.floor((Date.now() + clockSkew) / 90000), job = BIT_JOBS[slot % BIT_JOBS.length];
+    if (sitting && slot % 3 === 1) { tx = g.x + Math.sin(slot) * 3; tz = g.z + Math.cos(slot) * 3; bitS.job = job; } else bitS.job = null;
+    const dx = tx - b.x, dz = tz - b.z, d = Math.hypot(dx, dz);
+    const vT = d < 0.15 ? 0 : Math.min(1.3, 0.4 + d * 0.8);
+    bitS.v += Math.max(-2 * dt, Math.min(2.5 * dt, vT - bitS.v));
+    if (d > 0.15) { const yaw = Math.atan2(dx, dz); const dy = Math.atan2(Math.sin(yaw - bit.rotation.y), Math.cos(yaw - bit.rotation.y)); bit.rotation.y += Math.max(-4 * dt, Math.min(4 * dt, dy)); }
+    else { const yaw = Math.atan2(g.x - b.x, g.z - b.z); const dy = Math.atan2(Math.sin(yaw - bit.rotation.y), Math.cos(yaw - bit.rotation.y)); bit.rotation.y += dy * Math.min(1, dt * 3); }
+    b.x += Math.sin(bit.rotation.y) * bitS.v * dt; b.z += Math.cos(bit.rotation.y) * bitS.v * dt;
+    if (d > 8) { b.x = tx; b.z = tz; }
+    const hit = phys.raycast(new THREE.Vector3(b.x, b.y + 0.5, b.z), DOWN, 1.2); const gy = hit && hit.normal.y > 0.7 && !hit.cap ? hit.point.y : 0; b.y += (gy - b.y) * Math.min(1, dt * 8);
+    phys.moveCapsule("bit", tmpA.set(b.x, b.y + 0.15, b.z), tmpB.set(b.x, b.y + 0.55, b.z));
+    const u = bit.userData; u.wheel.rotation.x += (bitS.v * dt) / 0.12; u.body.rotation.x = Math.min(0.15, bitS.v * 0.1); u.body.position.y = 0.42 + Math.sin(t * 3) * 0.008;
+    const talking = performance.now() < bitS.sayUntil, thinking = !!bitS.job && d < 0.3;
+    u.light.material.color.set(talking ? 0x4ab8ff : thinking ? 0xffd23f : 0x6cff7a);
+    u.arm.rotation.x = thinking ? -1.2 + Math.sin(t * 9) * 0.3 : -0.2 + Math.sin(t * 1.5) * 0.05;
+    bitS.blinkT -= dt; if (bitS.blinkT < 0) bitS.blinkT = 2 + Math.random() * 3;
+    drawBitFace(u, t, bitS.blinkT < 0.12, talking, thinking);
+  }
+  // Bit's terse dev-humor lines: deterministic from the clock so every visitor sees the same line at the same time
+  const BIT_LINES = ["refactored your life plan. 3 warnings.", "ran the numbers. the numbers ran away.", "flies detected: 0 paid, 1 suspicious.", "your putt has a 12 percent hit rate. i love you anyway.", "commit message: greg asked the universe again.", "uptime: excellent. golf: undefined.", "i fixed the lamp. it was not broken. now it is better.", "reminder: you are a frog.", "the market is a random walk. so are you. we match.", "scanning chart. verdict: lines.", "watering plants. they did not ask. i care anyway.", "error 404: one million dollars not found. yet.", "beep. that was a supportive beep.", "i read the codex. law 1 still holds: things fall."];
+  const bitBub = (() => { const cv = document.createElement("canvas"); cv.width = 512; cv.height = 128; const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), transparent: true, depthWrite: false })); sp.scale.set(1.0, 0.25, 1); sp.visible = false; sp.userData.noCollide = true; scene.add(sp); return { cv, sp, text: "" }; })();
+  function bitSay(text, ms = 4500) { bitS.say = text; bitS.sayUntil = performance.now() + ms; if (bitBub.text !== text) { bitBub.text = text; const x = bitBub.cv.getContext("2d"); x.clearRect(0, 0, 512, 128); x.fillStyle = "#0e1726"; x.strokeStyle = "#4ab8ff"; x.lineWidth = 6; x.beginPath(); x.roundRect(4, 4, 504, 96, 22); x.fill(); x.stroke(); x.fillStyle = "#7fe3ff"; x.font = "700 24px monospace"; x.textAlign = "center"; x.fillText(text.length > 38 ? text.slice(0, 37) + "…" : text, 256, 60); bitBub.sp.material.map.needsUpdate = true; } }
+  let bitLineSlot = -1;
+  function bitChatter() { const now = Date.now() + clockSkew, slot = Math.floor(now / 40000); if (slot !== bitLineSlot && now % 40000 < 5000) { bitLineSlot = slot; bitSay(BIT_LINES[slot % BIT_LINES.length]); } bitBub.sp.visible = performance.now() < bitS.sayUntil; if (bitBub.sp.visible) bitBub.sp.position.set(bit.position.x, bit.position.y + 0.95, bit.position.z); }
 
   // owner-added items
   const itemGroup = new THREE.Group(); isl.add(itemGroup);
@@ -599,6 +633,7 @@ export function createWorld(canvas, { onReady, lowPower, onPick, onUserOrbit, on
     phys.stepBodies(dt); golfCheck(dt);
     if (navGo && !physDirty && !nav.isReady()) { if (nav.buildSlice(4)) setRouter(nav.route); }
     if (st) updateGreg(dt, t);
+    if (st) { updateBit(dt, t); bitChatter(); }
     for (const f of frameHooks) f(dt, t);
     if (!controls.enabled) { draw(); return; }
     if (follow) { const tg = followObj ? followObj.position : head.set(greg.position.x, 0.9, greg.position.z); const old = controls.target.clone(); controls.target.lerp(tg, followObj ? 0.15 : 0.06); camera.position.add(old.sub(controls.target).negate()); }
@@ -825,7 +860,7 @@ export function createWorld(canvas, { onReady, lowPower, onPick, onUserOrbit, on
   }
   return {
     punch: (target, at) => { punchAt = at; punchTarget = target; },
-    _loco: () => ({ ...loco, path: loco.path?.length, tmp: [tmp.x, tmp.z], heading, rot: greg.rotation.y }), hq, nav, phys, interactables, isl, greg, nest, espresso, debugOn, onEvent: (f) => eventHooks.push(f), rebuildPhysics, buildPhysicsNow,
+    _loco: () => ({ ...loco, path: loco.path?.length, tmp: [tmp.x, tmp.z], heading, rot: greg.rotation.y }), bit, bitSay, bitJob: () => bitS.job, hq, nav, phys, interactables, isl, greg, nest, espresso, debugOn, onEvent: (f) => eventHooks.push(f), rebuildPhysics, buildPhysicsNow,
     nestSpawns: () => nest.userData.spawns.map((v) => nest.localToWorld(v.clone())), nestCenter: () => nest.localToWorld(new THREE.Vector3(0, 0.7, 0.4)),
     setNest: (n) => nest.userData.drawSign(n), gregPlan: (now) => (st ? gregPlan(now) : null), gregHeadY: () => greg.position.y + GREG_H * 0.92,
     setPickGate: (f) => (pickGate = f), renderer, setRenderOverride: (f) => (renderOverride = f), fps: () => lastFps,
@@ -875,6 +910,33 @@ export function createWorld(canvas, { onReady, lowPower, onPick, onUserOrbit, on
 // Walk clip data, measured from greg-walk.glb with forward kinematics: 3 cycles in 4.2 s, a planted foot moves
 // back at 0.27 model units/s (x the rig's scale = metres/s at playback rate 1).
 const WALK_CLIP = { dur: 4.2, cycles: 3, stance: 0.27 };
+function buildBit() {
+  const g = new THREE.Group(); g.userData.surface = "bit";
+  const body = new THREE.Group(); body.position.y = 0.42; g.add(body);
+  const shell = M(new THREE.CapsuleGeometry(0.2, 0.16, 6, 16), 0xe8edf2); shell.scale.set(1, 1, 0.9); body.add(shell);
+  const band = M(G.cyl(0.205, 0.205, 0.05, 20), 0x4ab8ff, { ot: 0.4 }); band.position.y = -0.08; body.add(band);
+  const cv = document.createElement("canvas"); cv.width = 128; cv.height = 96; const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+  const face = new THREE.Mesh(new THREE.PlaneGeometry(0.26, 0.19), new THREE.MeshBasicMaterial({ map: tex })); face.position.set(0, 0.06, 0.182); body.add(face);
+  const bezel = M(G.box(0.29, 0.22, 0.02), 0x1b1f2a, { ot: 0.3 }); bezel.position.set(0, 0.06, 0.172); body.add(bezel);
+  const ant = M(G.cyl(0.008, 0.008, 0.14, 6), 0x777f8a, { outline: false }); ant.position.y = 0.33; body.add(ant);
+  const light = new THREE.Mesh(G.sph(0.032, 10, 8), new THREE.MeshBasicMaterial({ color: 0x6cff7a })); light.position.y = 0.41; body.add(light);
+  const arm = new THREE.Group(); arm.position.set(0.22, -0.02, 0); body.add(arm);
+  { const a1 = M(G.cyl(0.02, 0.02, 0.18, 8), 0x9aa3ad, { ot: 0.3 }); a1.position.y = -0.09; arm.add(a1); const claw = M(new THREE.TorusGeometry(0.035, 0.01, 6, 10, Math.PI * 1.4), 0x4ab8ff, { ot: 0.3 }); claw.position.y = -0.19; claw.rotation.z = Math.PI / 2; arm.add(claw); }
+  const stub = M(G.cyl(0.03, 0.03, 0.12, 8), 0x9aa3ad, { ot: 0.3 }); stub.position.set(-0.22, -0.04, 0); stub.rotation.z = 0.4; body.add(stub);
+  const fork = M(G.box(0.1, 0.16, 0.06), 0x9aa3ad, { ot: 0.3 }); fork.position.y = 0.17; g.add(fork);
+  const wheel = new THREE.Group(); wheel.position.y = 0.12; g.add(wheel); const tire = M(G.cyl(0.12, 0.12, 0.07, 18), 0x22262e, { ot: 0.4 }); tire.rotation.z = Math.PI / 2; wheel.add(tire); const hub = M(G.cyl(0.05, 0.05, 0.08, 10), 0x4ab8ff, { outline: false }); hub.rotation.z = Math.PI / 2; wheel.add(hub);
+  const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.22, 16), new THREE.MeshBasicMaterial({ color: 0, transparent: true, opacity: 0.2, depthWrite: false })); shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.02; shadow.userData.noCollide = true; g.add(shadow);
+  Object.assign(g.userData, { body, face, cv, tex, light, arm, wheel, lastFace: "" });
+  return g;
+}
+function drawBitFace(u, t, blink, talking, thinking) {
+  const key = (blink ? "b" : "o") + (talking ? Math.floor(t * 8) % 3 : "") + (thinking ? Math.floor(t * 6) : ""); if (key === u.lastFace) return; u.lastFace = key;
+  const x = u.cv.getContext("2d"); x.fillStyle = "#0e1726"; x.fillRect(0, 0, 128, 96);
+  if (thinking) { x.fillStyle = "#6cff7a"; x.font = "11px monospace"; const L = ["fn()", "if(ok)", "{ }", "0x1f", "ret;", "=> 42", "map()"]; for (let i = 0; i < 7; i++) x.fillText(L[(i + Math.floor(t * 6)) % 7], 8 + ((i * 17) % 40), 14 + i * 12); }
+  else { x.fillStyle = "#7fe3ff"; for (const ex of [40, 88]) { if (blink) x.fillRect(ex - 12, 40, 24, 4); else { x.fillRect(ex - 9, 26, 18, 22); x.fillStyle = "#e9fbff"; x.fillRect(ex - 3, 29, 6, 6); x.fillStyle = "#7fe3ff"; } }
+    if (talking) { const h = [4, 10, 6][Math.floor(t * 8) % 3]; x.fillRect(52, 66, 24, h); } else x.fillRect(54, 68, 20, 3); }
+  u.tex.needsUpdate = true;
+}
 function flagGeo() { const fg = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 2.4, 0), new THREE.Vector3(0, 1.9, 0), new THREE.Vector3(0.9, 2.15, 0)]); fg.computeVertexNormals(); return fg; }
 let _grad = null;
 function toonGradient() { if (_grad) return _grad; const d = new Uint8Array([90, 170, 255]); _grad = new THREE.DataTexture(d, 3, 1, THREE.RedFormat); _grad.minFilter = _grad.magFilter = THREE.NearestFilter; _grad.needsUpdate = true; return _grad; }
@@ -1110,23 +1172,30 @@ function buildHQ(SC, screenTex, renderer) {
     const ped = M(G.box(0.7, 0.76, 0.85), 0x3a3a46); ped.position.set(0.85, 0.38, 0); desk.add(ped);
     for (const y of [0.2, 0.52]) { const dr = M(G.box(0.62, 0.26, 0.02), 0x4a4a58, { ot: 0.4 }); dr.position.set(0.85, y, 0.43); desk.add(dr); const h = M(G.box(0.26, 0.03, 0.03), 0xd8b45a, { ot: 0.3, emissive: 0.3 }); h.position.set(0.85, y + 0.04, 0.45); desk.add(h); }
     const leg = M(G.box(0.07, 0.76, 0.8), wood, { ot: 0.4 }); leg.position.set(-1.2, 0.38, 0); desk.add(leg);
-    const mon = M(G.box(1.1, 0.7, 0.06), 0x15151c); mon.position.set(-0.2, 1.3, -0.2); desk.add(mon);
-    const scr = new THREE.Mesh(new THREE.PlaneGeometry(1.02, 0.62), new THREE.MeshBasicMaterial({ map: screenTex })); scr.position.set(-0.2, 1.3, -0.165); desk.add(scr);
-    const st = M(G.box(0.08, 0.36, 0.08), 0x2a2a33, { ot: 0.4 }); st.position.set(-0.2, 0.98, -0.22); desk.add(st);
-    const cam = M(G.box(0.14, 0.07, 0.07), 0x22222a, { ot: 0.3 }); cam.position.set(-0.2, 1.69, -0.2); desk.add(cam);
+    // four monitors: left Tweets, center Charts + portfolio, right pump.fun feed, top NFTs (canvases drawn by screens.js)
+    const mkScreen = (key, w, h, x, y, z, ry) => { const cv = document.createElement("canvas"); cv.width = Math.round(w * 900); cv.height = Math.round(h * 900); const tx = new THREE.CanvasTexture(cv); tx.colorSpace = THREE.SRGBColorSpace; tx.anisotropy = 4;
+      const grp = new THREE.Group(); grp.position.set(x, y, z); grp.rotation.y = ry; desk.add(grp);
+      const fr = M(G.box(w + 0.06, h + 0.06, 0.05), 0x15151c); grp.add(fr); const sc = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: tx })); sc.position.z = 0.028; grp.add(sc); sc.userData.screen = key;
+      screens[key] = { cv, tx, mesh: sc }; return grp; };
+    const screens = {};
+    mkScreen("charts", 0.95, 0.58, -0.1, 1.3, -0.22, 0); mkScreen("tweets", 0.66, 0.46, -1.0, 1.24, -0.12, 0.38); mkScreen("pump", 0.66, 0.46, 0.8, 1.24, -0.12, -0.38); mkScreen("nfts", 0.78, 0.4, -0.1, 1.86, -0.26, 0);
+    for (const [x, ry] of [[-0.1, 0], [-1.0, 0.38], [0.8, -0.38]]) { const st = M(G.box(0.07, 0.34, 0.07), 0x2a2a33, { ot: 0.4 }); st.position.set(x, 0.98, -0.2); desk.add(st); }
+    const pole = M(G.cyl(0.02, 0.02, 0.5, 6), 0x2a2a33, { ot: 0.3 }); pole.position.set(-0.1, 1.84, -0.32); desk.add(pole);
+    const cam = M(G.box(0.14, 0.07, 0.07), 0x22222a, { ot: 0.3 }); cam.position.set(-0.1, 2.1, -0.24); desk.add(cam);
+    g.userData.screens = screens;
     const kb = M(G.box(0.7, 0.03, 0.22), 0x2a2a33, { ot: 0.4 }); kb.position.set(-0.2, 0.855, 0.2); desk.add(kb);
     const mouse = M(G.sph(0.04, 8, 6), 0x2a2a33, { ot: 0.3 }); mouse.scale.set(1, 0.5, 1.4); mouse.position.set(0.3, 0.855, 0.22); desk.add(mouse); }
   // frog mug with steam
-  const mug = new THREE.Mesh(cupGeo(0.13, 0.055), toon(0xffffff, null, { side: THREE.DoubleSide })); outline(mug, 0.35); mug.position.set(0.55, 0.84, -2.55); g.add(mug);
-  for (const s of [-1, 1]) { const e = M(G.sph(0.018, 8, 6), 0x5cc24a, { ot: 0.3 }); e.position.set(0.55 + s * 0.022, 0.96, -2.495); g.add(e); }
+  const mug = new THREE.Mesh(cupGeo(0.13, 0.055), toon(0xffffff, null, { side: THREE.DoubleSide })); outline(mug, 0.35); mug.position.set(0.45, 0.84, -2.45); g.add(mug);
+  for (const s of [-1, 1]) { const e = M(G.sph(0.018, 8, 6), 0x5cc24a, { ot: 0.3 }); e.position.set(0.45 + s * 0.022, 0.96, -2.395); g.add(e); }
   const mugSteam = []; for (let i = 0; i < 4; i++) { const s = new THREE.Mesh(G.sph(0.03, 6, 5), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5, depthWrite: false })); s.userData.noCollide = true; g.add(s); mugSteam.push(s); }
-  // brass desk lamp
-  { const brass = 0xc9a04a; const b = M(G.cyl(0.12, 0.14, 0.04, 14), brass, { ot: 0.4 }); b.position.set(0.95, 0.86, -2.85); g.add(b);
-    const a1 = M(G.cyl(0.015, 0.015, 0.6, 6), brass, { ot: 0.3 }); a1.position.set(0.95, 1.15, -2.85); a1.rotation.z = 0.25; g.add(a1);
-    const a2 = M(G.cyl(0.015, 0.015, 0.45, 6), brass, { ot: 0.3 }); a2.position.set(0.75, 1.48, -2.8); a2.rotation.z = 1.2; g.add(a2);
-    const sh = M(new THREE.ConeGeometry(0.16, 0.2, 14, 1, true), brass, { side: THREE.DoubleSide, ot: 0.4 }); sh.position.set(0.52, 1.5, -2.78); sh.rotation.z = 0.6; g.add(sh);
-    const bulb = new THREE.Mesh(G.sph(0.06, 8, 6), toon(0xfff1b0, null, { emissive: 1 })); bulb.position.set(0.5, 1.44, -2.78); bulb.userData.noCollide = true; g.add(bulb);
-    const glow = new THREE.Mesh(new THREE.CircleGeometry(0.5, 20), new THREE.MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.18, depthWrite: false })); glow.rotation.x = -Math.PI / 2; glow.position.set(0.35, 0.845, -2.6); decal(glow, 3); g.add(glow); }
+  // brass floor lamp at the right end of the desk, arching over the corner
+  { const brass = 0xc9a04a; const b = M(G.cyl(0.16, 0.18, 0.05, 14), brass, { ot: 0.4 }); b.position.set(1.45, 0.085, -2.75); g.add(b);
+    const p1 = M(G.cyl(0.02, 0.02, 1.6, 6), brass, { ot: 0.3 }); p1.position.set(1.45, 0.9, -2.75); g.add(p1);
+    const a2 = M(G.cyl(0.015, 0.015, 0.5, 6), brass, { ot: 0.3 }); a2.position.set(1.27, 1.78, -2.62); a2.rotation.z = 1.1; a2.rotation.y = 0.6; g.add(a2);
+    const sh = M(new THREE.ConeGeometry(0.16, 0.2, 14, 1, true), brass, { side: THREE.DoubleSide, ot: 0.4 }); sh.position.set(1.08, 1.68, -2.5); g.add(sh);
+    const bulb = new THREE.Mesh(G.sph(0.06, 8, 6), toon(0xfff1b0, null, { emissive: 1 })); bulb.position.set(1.08, 1.62, -2.5); bulb.userData.noCollide = true; g.add(bulb);
+    const glow = new THREE.Mesh(new THREE.CircleGeometry(0.45, 20), new THREE.MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.16, depthWrite: false })); glow.rotation.x = -Math.PI / 2; glow.position.set(0.9, 0.845, -2.5); decal(glow, 3); g.add(glow); }
   // red office chair (the seat Greg sits in)
   const chair = new THREE.Group(); chair.position.set(-0.4, 0, -1.75); g.add(chair);
   { const red = 0xc8352b; const seat = M(G.box(0.72, 0.16, 0.66), red); seat.position.y = 0.55; chair.add(seat);
@@ -1213,7 +1282,15 @@ function buildHQ(SC, screenTex, renderer) {
     // outside lamp by the door
     const lamp = new THREE.Mesh(G.sph(0.1, 10, 8), toon(0xffe6a6, null, { emissive: 1 })); lamp.position.set(2.3, 2.3, D / 2 + 0.2); g.add(lamp); }
   g.userData.chair = chair; g.userData.mugSteam = mugSteam; g.userData.mug = mug;
+  // Greg's diary on the desk (open book with a red ribbon)
+  const diary = new THREE.Group(); diary.position.set(-1.15, 0.84, -2.4); diary.rotation.y = 0.25; g.add(diary);
+  { const cover = M(G.box(0.36, 0.03, 0.26), 0x8a2b2b, { ot: 0.3 }); diary.add(cover); for (const sx of [-1, 1]) { const pg = M(G.box(0.165, 0.02, 0.24), 0xfff7e0, { ot: 0.2 }); pg.position.set(sx * 0.088, 0.025, 0); pg.rotation.z = -sx * 0.06; diary.add(pg); }
+    const lines2 = canvasTex(128, 96, (x) => { x.fillStyle = "#fff7e0"; x.fillRect(0, 0, 128, 96); x.strokeStyle = "#7a8aa8"; x.lineWidth = 1; for (let i = 1; i < 8; i++) { x.beginPath(); x.moveTo(6, i * 11); x.lineTo(122, i * 11); x.stroke(); } x.fillStyle = "#2a2a55"; x.font = "italic 10px Georgia"; x.fillText("dear diary,", 8, 9); });
+    const pgTex = new THREE.Mesh(new THREE.PlaneGeometry(0.32, 0.22), new THREE.MeshBasicMaterial({ map: lines2 })); pgTex.rotation.x = -Math.PI / 2; pgTex.position.y = 0.037; diary.add(pgTex);
+    const rib = M(G.box(0.012, 0.004, 0.16), 0xc0392b, { outline: false }); rib.position.set(0.02, 0.04, 0.15); diary.add(rib); }
   g.userData.interactables = [
+    { id: "hq_diary", obj: diary, r: 0.6, prompt: "Read Greg's diary", kind: "diary" },
+    ...Object.entries(g.userData.screens).map(([k, sc]) => ({ id: "hq_screen_" + k, obj: sc.mesh, r: 0.7, prompt: "Open the " + ({ charts: "charts", tweets: "tweets", pump: "pump.fun", nfts: "NFT" }[k]) + " screen", kind: "screen", screen: k })),
     { id: "hq_mug", obj: mug, r: 0.5, prompt: "Sip Greg's coffee", kind: "coffee" },
     { id: "hq_sign", obj: g, r: 0, prompt: "", kind: "none" },
   ].filter((i) => i.r > 0);

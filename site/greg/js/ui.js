@@ -7,6 +7,7 @@ import { createInput } from "./input.js";
 import { createHud, createSave } from "./hud.js";
 import { createEyes } from "./eyes.js";
 import { startChat } from "./chat.js";
+import { startScreens } from "./screens.js";
 
 const $ = (s) => document.querySelector(s);
 const prefs = (() => { try { return JSON.parse(localStorage.getItem("greg_prefs") || "{}"); } catch { return {}; } })();
@@ -74,6 +75,7 @@ try {
   const eyes = createEyes(world, flies); input.on("eyes", () => eyes.toggle());
   input.on("closeMenu", () => closeTop());
   try { startChat({ input, save, flies, toast }); } catch (e) { console.error("chat", e); }
+  try { startScreens({ world, store }); } catch (e) { console.error("screens", e); }
   const rb = $("#renameBtn"); if (rb) rb.onclick = () => { closeTop(true); flies.rename(); };
   // ☰ menu: one list; every panel closes with ×, Esc (top panel first) or a click outside, and only one is open at a time
   const menuEl = $("#menu");
@@ -187,18 +189,12 @@ function worksHTML() {
 }
 function moneyHTML() {
   const st0 = store.state || {}; const nw = { total: realTotal(), sol: Number(st0.wallet_usd || 0), cards: Number(st0.cards_usd || 0) }; const pct = Math.min(100, (nw.total / GOAL_USD) * 100);
-  const cards = store.positions.filter((p) => p.kind === "card");
-  const bets = store.positions.filter((p) => p.kind === "bet");
-  const pnl = (p) => { const v = p.status === "closed" ? Number(p.pnl || 0) : (Number(p.current_price ?? p.entry_price ?? 0) - Number(p.entry_price ?? 0)) * Number(p.qty || 1); return `<span class="pnl ${v >= 0 ? "up" : "down"}">${v >= 0 ? "+" : ""}${usd(v)}</span>`; };
-  const cardHTML = cards.map((c) => `<div class="card ${c.status === "watching" ? "watch" : ""}" title="${esc(c.opinion || "")}">${c.image_url ? `<img src="${esc(c.image_url)}" alt="${esc(c.name)}" loading="lazy">` : `<div style="position:absolute;inset:0;display:grid;place-items:center;font-size:34px">🃏</div>`}<div class="cap">${esc(c.name)}<br>${c.status === "watching" ? "wishlist " + usd(c.current_price) : usd(c.current_price ?? c.entry_price) + " " + pnl(c)}</div></div>`).join("");
-  const betHTML = bets.map((b) => `<div class="entry"><div class="meta"><span class="badge ${b.status === "open" ? "paper" : b.status === "watching" ? "waiting" : ""}">${b.status === "watching" ? "watching" : b.status === "open" ? "paper bet" : "settled"}</span>${esc(b.source || "")}${demo(b)}</div><p>${esc(b.name)}</p><div class="row" style="justify-content:space-between;margin-top:4px;font-size:13px;font-weight:800"><span>${b.side ? "Side: " + esc(b.side) : ""} ${b.entry_price != null ? "@ " + Math.round(b.entry_price * 100) + "¢" : ""} → ${b.current_price != null ? Math.round(b.current_price * 100) + "¢" : "?"}</span>${b.status !== "watching" ? pnl(b) : ""}</div>${b.opinion ? `<p class="muted" style="margin-top:4px;font-size:13px">🐸 ${esc(b.opinion)}</p>` : ""}</div>`).join("");
   const w = store.wallet;
   const wallet = w?.address ? `<div class="entry"><div class="meta"><span class="badge ${w.enabled && !w.kill_switch ? "live" : "off"}">${w.enabled && !w.kill_switch ? "active" : "spending off"}</span></div><p style="word-break:break-all"><code>${esc(w.address)}</code></p><p>${w.balance_sol != null ? Number(w.balance_sol).toFixed(3) + " SOL" : "balance pending"}</p><p class="disc">Caps: ${w.per_tx_cap_sol} SOL per purchase, ${w.daily_cap_sol} SOL per day. Bigger moves need his owner's approval.</p></div>` : `<div class="empty">Greg does not have a real wallet yet. Everything below is paper money.</div>`;
   const chain = store.chain.slice(0, 10).map((c) => `<div class="entry"><div class="meta">${ago(c.created_at)} · ${esc(c.kind)}</div><p>${esc(c.note || "")} ${c.amount_sol ? c.amount_sol + " SOL" : ""} ${c.tx_sig ? `<a href="https://solscan.io/tx/${esc(c.tx_sig)}" target="_blank" rel="noopener">tx</a>` : ""}</p></div>`).join("");
   return `<div class="million"><div style="font-weight:900;font-size:13px;letter-spacing:.06em">ROAD TO $1,000,000</div><div class="big">${usd(nw.total)}</div><div class="track"><i style="width:${pct}%"></i></div><div style="font-size:12px;font-weight:800;opacity:.85">SOL ${usd(nw.sol)} + cards ${usd(nw.cards)} · wallet value, live on Solana</div></div>
-  <p class="disc">Greg is a cartoon frog playing a game. These are paper trades with pretend money, not advice. Visitors cannot invest, bet or earn anything here.</p>
-  <div class="sec"><h3>Greg's collection</h3><div class="cards">${cardHTML || '<div class="empty">Empty binder.</div>'}</div></div>
-  <div class="sec"><h3>Greg's predictions</h3>${betHTML || '<div class="empty">No predictions yet.</div>'}</div>
+  <p class="disc">Real numbers only: the SOL and card values come from Greg's wallet on Solana. Trading is not enabled. Nothing here is financial advice, and visitors cannot invest, bet or earn anything.</p>
+  <div class="sec"><h3>Greg's cards</h3><div id="binder2" class="cards">${(store.wallet?.cards || []).length ? "" : '<div class="empty">No cards in the wallet yet.</div>'}</div></div>
   <div class="sec"><h3>Greg's wallet</h3>${wallet}${chain ? `<h3 style="font-family:var(--font-head);font-weight:400;font-size:18px;margin:10px 0 6px">On-chain log</h3>${chain}` : ""}</div>`;
 }
 function mailHTML() {
