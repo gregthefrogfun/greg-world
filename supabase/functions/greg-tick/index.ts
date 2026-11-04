@@ -176,14 +176,17 @@ Existential thread: occasionally, mostly late at night, you muse about being stu
 Hard rules: never mention or imitate any real person or politician, no politics, no financial advice, never tell anyone to buy, sell or bet anything, never name token tickers or contract addresses, never ask visitors for money, never glamorize smoking or drinking, nothing sexual. Keep lines short and funny. No long dashes.`;
 
 let lastLLMErr = "";
-async function claude(system: string, user: string, max = 300): Promise<string | null> {
+async function claude(system: string, user: string, max = 300, retry = true): Promise<string | null> {
   const key = Deno.env.get("ANTHROPIC_API_KEY"); if (!key) { lastLLMErr = "no key"; return null; }
   try {
-    const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" }, body: JSON.stringify({ model: Deno.env.get("GREG_MODEL") ?? "claude-haiku-5-5", max_tokens: max, system, messages: [{ role: "user", content: user }] }), signal: AbortSignal.timeout(max > 600 ? 50000 : 25000) });
+    // Thinking off: these are short persona lines, and with thinking on the model spent the whole budget thinking (empty text).
+    const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" }, body: JSON.stringify({ model: Deno.env.get("GREG_MODEL") ?? "claude-haiku-5-5", max_tokens: max, thinking: { type: "disabled" }, system, messages: [{ role: "user", content: user }] }), signal: AbortSignal.timeout(max > 600 ? 50000 : 25000) });
     if (!r.ok) { const t = (await r.text()).slice(0, 200); lastLLMErr = "http " + r.status + " " + (t.match(/"type":"([a-z_]+)"/g) || []).slice(-1).join(""); console.error("anthropic", r.status, t); return null; }
     const j = await r.json();
     lastLLMErr = "empty: stop=" + j.stop_reason + " types=" + (j.content ?? []).map((x: any) => x.type).join(",") + " model=" + j.model;
-    return (j.content ?? []).filter((x: any) => x.type === "text").map((x: any) => x.text).join("").replace(/[–—]/g, ",").trim() || null;
+    const text = (j.content ?? []).filter((x: any) => x.type === "text").map((x: any) => x.text).join("").replace(/[\u2013\u2014]/g, ",").trim();
+    if (!text && retry && j.stop_reason === "max_tokens") return claude(system, user, Math.min(max * 4, 4000), false);
+    return text || null;
   } catch (e) { lastLLMErr = String(e).slice(0, 80); console.error("claude", String(e)); return null; }
 }
 // Models often put raw newlines/tabs inside JSON strings (multi-paragraph bodies). Escape control characters that sit

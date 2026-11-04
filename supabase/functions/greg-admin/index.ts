@@ -13,7 +13,7 @@ const pick = <T,>(a: T[]) => a[Math.floor(Math.random() * a.length)];
 async function claudeReact(what: string) {
   const key = Deno.env.get("ANTHROPIC_API_KEY"); if (!key) return null;
   try {
-    const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" }, body: JSON.stringify({ model: Deno.env.get("GREG_MODEL") ?? "claude-haiku-5-5", max_tokens: 120, system: "You are Greg, a boastful, lovable golf-obsessed cartoon frog. One or two short sentences. No real people, no politics, no long dashes.", messages: [{ role: "user", content: `Your owner just gave you: ${what}. React.` }] }), signal: AbortSignal.timeout(12000) });
+    const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" }, body: JSON.stringify({ model: Deno.env.get("GREG_MODEL") ?? "claude-haiku-5-5", max_tokens: 120, thinking: { type: "disabled" }, system: "You are Greg, a boastful, lovable golf-obsessed cartoon frog. One or two short sentences. No real people, no politics, no long dashes.", messages: [{ role: "user", content: `Your owner just gave you: ${what}. React.` }] }), signal: AbortSignal.timeout(12000) });
     if (!r.ok) return null; const j = await r.json(); return (j.content ?? []).map((c: any) => c.text || "").join("").replace(/[–—]/g, ",").trim().slice(0, 240) || null;
   } catch { return null; }
 }
