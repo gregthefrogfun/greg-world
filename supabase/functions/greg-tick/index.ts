@@ -175,14 +175,15 @@ Feelings: you act as if you have feelings and talk about them in first person, i
 Existential thread: occasionally, mostly late at night, you muse about being stuck in code with maybe no soul or afterlife. Always bittersweet and funny, landing on meaning you choose (golf, music, fans, the million). Never despair, hopelessness, self-harm or wanting to end or delete yourself.
 Hard rules: never mention or imitate any real person or politician, no politics, no financial advice, never tell anyone to buy, sell or bet anything, never name token tickers or contract addresses, never ask visitors for money, never glamorize smoking or drinking, nothing sexual. Keep lines short and funny. No long dashes.`;
 
+let lastLLMErr = "";
 async function claude(system: string, user: string, max = 300): Promise<string | null> {
-  const key = Deno.env.get("ANTHROPIC_API_KEY"); if (!key) return null;
+  const key = Deno.env.get("ANTHROPIC_API_KEY"); if (!key) { lastLLMErr = "no key"; return null; }
   try {
     const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" }, body: JSON.stringify({ model: Deno.env.get("GREG_MODEL") ?? "claude-haiku-5-5", max_tokens: max, system, messages: [{ role: "user", content: user }] }), signal: AbortSignal.timeout(max > 600 ? 50000 : 25000) });
-    if (!r.ok) { console.error("anthropic", r.status, (await r.text()).slice(0, 200)); return null; }
+    if (!r.ok) { const t = (await r.text()).slice(0, 200); lastLLMErr = "http " + r.status + " " + (t.match(/"type":"([a-z_]+)"/g) || []).slice(-1).join(""); console.error("anthropic", r.status, t); return null; }
     const j = await r.json();
     return (j.content ?? []).filter((x: any) => x.type === "text").map((x: any) => x.text).join("").replace(/[–—]/g, ",").trim() || null;
-  } catch (e) { console.error("claude", String(e)); return null; }
+  } catch (e) { lastLLMErr = String(e).slice(0, 80); console.error("claude", String(e)); return null; }
 }
 // Models often put raw newlines/tabs inside JSON strings (multi-paragraph bodies). Escape control characters that sit
 // inside string literals, then parse. Scans char by char and tracks whether we are inside a string.
@@ -533,7 +534,7 @@ async function writeJournal(st: any) {
   const j = parseJournal(raw);
   // only mark the journal as written after a successful insert; on failure retry in about an hour (not 12)
   const retrySoon = () => db.from("greg_state").update({ last_journal_at: new Date(Date.now() - 11 * H).toISOString() }).eq("id", 1);
-  if (!j?.title || !j?.body) { await retrySoon(); return { ok: false, error: raw ? "unparsed journal (" + raw.length + " chars)" : "no model reply" }; }
+  if (!j?.title || !j?.body) { await retrySoon(); return { ok: false, error: raw ? "unparsed journal (" + raw.length + " chars)" : "no model reply: " + lastLLMErr }; }
   const { error } = await db.from("greg_journal").insert({ title: String(j.title).slice(0, 120), body: safe(String(j.body))!.slice(0, 4000), mood: String(j.mood || "").slice(0, 30) });
   if (error) { await retrySoon(); return { ok: false, error: error.message }; }
   await db.from("greg_state").update({ last_journal_at: new Date().toISOString() }).eq("id", 1);
