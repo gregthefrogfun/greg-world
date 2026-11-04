@@ -178,7 +178,7 @@ Hard rules: never mention or imitate any real person or politician, no politics,
 async function claude(system: string, user: string, max = 300): Promise<string | null> {
   const key = Deno.env.get("ANTHROPIC_API_KEY"); if (!key) return null;
   try {
-    const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" }, body: JSON.stringify({ model: Deno.env.get("GREG_MODEL") ?? "claude-haiku-5-5", max_tokens: max, system, messages: [{ role: "user", content: user }] }), signal: AbortSignal.timeout(25000) });
+    const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" }, body: JSON.stringify({ model: Deno.env.get("GREG_MODEL") ?? "claude-haiku-5-5", max_tokens: max, system, messages: [{ role: "user", content: user }] }), signal: AbortSignal.timeout(max > 600 ? 50000 : 25000) });
     if (!r.ok) { console.error("anthropic", r.status, (await r.text()).slice(0, 200)); return null; }
     const j = await r.json();
     return (j.content ?? []).filter((x: any) => x.type === "text").map((x: any) => x.text).join("").replace(/[–—]/g, ",").trim() || null;
@@ -519,12 +519,21 @@ async function draftDevlog() {
   await db.from("greg_devlog").insert({ slug, title: j.title, summary: j.summary || "", body: j.body, status: "draft" });
   return { ok: true, slug };
 }
+export function parseJournal(raw: string | null): { title: string; body: string; mood: string } | null {
+  if (!raw) return null;
+  const t = raw.match(/TITLE:\s*(.+)/i), m = raw.match(/MOOD:\s*(.+)/i), b = raw.match(/BODY:\s*\n?([\s\S]+)/i);
+  if (t && b) return { title: t[1].trim().replace(/^["*#\s]+|["*\s]+$/g, ""), body: b[1].trim(), mood: (m?.[1] || "").trim() };
+  const js = raw.match(/\{[\s\S]*\}/); const j = js ? lenientJSON(js[0]) : null; // fallback if the model still sends JSON
+  return j?.title && j?.body ? { title: String(j.title), body: String(j.body), mood: String(j.mood || "") } : null;
+}
 async function writeJournal(st: any) {
   const [{ data: d }, brief] = await Promise.all([db.from("greg_diary").select("text").gte("created_at", new Date(Date.now() - 14 * H).toISOString()).order("created_at", { ascending: false }).limit(25), memoryBrief(15)]);
-  const j = await claudeJSON(`Write a post for your public blog "Greg's Journal". Today: ${(d || []).map((x: any) => x.text).join(" | ").slice(0, 2500)}. Memories:\n${brief.memories}. Million meter: ${meterPct(st).toFixed(4)}%. Cover what you did, your plans toward $1M (paper ideas only, no advice), and one bit of philosophy (life in a simulation, money, art, dreams). Reflective and funny, never despairing. 150 to 300 words, short paragraphs. Mood is one or two words.\n{"title":"","body":"","mood":""}`, 900);
+  // Plain tagged format instead of JSON: long bodies with quotes broke JSON parsing.
+  const raw = await claude(PERSONA, `Write a post for your public blog "Greg's Journal". Today: ${(d || []).map((x: any) => x.text).join(" | ").slice(0, 2500)}. Memories:\n${brief.memories}. Million meter: ${meterPct(st).toFixed(4)}%. Cover what you did, your plans toward $1M (paper ideas only, no advice), and one bit of philosophy (life in a simulation, money, art, dreams). Reflective and funny, never despairing. 150 to 300 words, short paragraphs. Mood is one or two words.\nReply in exactly this format, nothing before it:\nTITLE: <title>\nMOOD: <mood>\nBODY:\n<the post>`, 900);
+  const j = parseJournal(raw);
   // only mark the journal as written after a successful insert; on failure retry in about an hour (not 12)
   const retrySoon = () => db.from("greg_state").update({ last_journal_at: new Date(Date.now() - 11 * H).toISOString() }).eq("id", 1);
-  if (!j?.title || !j?.body) { await retrySoon(); return { ok: false, error: "no journal json" }; }
+  if (!j?.title || !j?.body) { await retrySoon(); return { ok: false, error: raw ? "unparsed journal (" + raw.length + " chars)" : "no model reply" }; }
   const { error } = await db.from("greg_journal").insert({ title: String(j.title).slice(0, 120), body: safe(String(j.body))!.slice(0, 4000), mood: String(j.mood || "").slice(0, 30) });
   if (error) { await retrySoon(); return { ok: false, error: error.message }; }
   await db.from("greg_state").update({ last_journal_at: new Date().toISOString() }).eq("id", 1);
