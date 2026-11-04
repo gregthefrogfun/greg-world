@@ -58,7 +58,7 @@ window.addEventListener("pointerdown", function first() { window.removeEventList
 // ---------- visitor flies ----------
 let flies = null;
 try {
-  const input = createInput($("#c")), save = createSave(), hud = createHud({ input, save, world });
+  const input = createInput($("#c")); window.__gregInput = input; const save = createSave(), hud = createHud({ input, save, world });
   flies = startFlies(world, {
     input, hud, save, toast: (m) => toast(m),
     onInspect: (title, html) => { $("#mbody").innerHTML = `<h2>${esc(title)}</h2>${html}`; $("#modal").classList.add("show"); input.release(); },
@@ -77,7 +77,7 @@ try {
   $("#lqBtn").onclick = () => { const v = !world.isLowQuality(); world.setLowQuality(v); $("#lqBtn").textContent = v ? "⚡ Low" : "✨ HQ"; };
   $("#camBtn").onclick = () => { const p = !flies.isPov(); flies.setPov(p); $("#camBtn").textContent = p ? "🐸 Greg cam" : "🪰 Fly cam"; };
 } catch (e) { console.error("flies", e); }
-window.__greg = { world, get flies() { return flies; } };
+window.__greg = { world, get flies() { return flies; }, get input() { return window.__gregInput; } };
 
 // ---------- $1M meter (server-cached wallet value, pushed to everyone over Realtime) ----------
 const GREG_ADDR = "CNAg1pWXsyakdDr2XfVQqDWkdzY9mQpbYBTBxgc1oppf";

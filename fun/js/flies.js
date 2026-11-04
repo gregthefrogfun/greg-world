@@ -379,15 +379,18 @@ export function startFlies(world, { input, hud, save, onCount, onRent, onUnpaidN
       if (input.touch.active) wish.addScaledVector(f, input.touch.y).addScaledVector(r, input.touch.x);
       const L0 = Math.min(1, wish.length()); if (L0 > 0) wish.normalize().multiplyScalar(L0);
       const wantBoost = (held("boost") || mobileBoost) && L0 > 0; st.stamina = Math.max(0, Math.min(1, (st.stamina ?? 1) + (wantBoost ? -0.38 : 0.2) * dt)); const boost = wantBoost && st.stamina > 0.02; const top = (boost ? 7.2 : 3.0) * (st.caffeine > 0 ? 1.4 : 1);
-      const k = 1 - Math.exp(-dt * (L0 > 0 ? (boost ? 3.2 : 4.2) : 1.5));
+      const k = 1 - Math.exp(-dt * (L0 > 0 ? (boost ? 3.2 : 4.5) : 4.0)); // assisted: quick, smooth braking, holds altitude
       const before = st.vel.clone(); st.vel.lerp(wish.multiplyScalar(top), k);
       st.brakeK += ((before.length() - st.vel.length() > 0.02 && L0 === 0 ? 1 : 0) - st.brakeK) * Math.min(1, dt * 6);
       if (L0 > 0 || st.vel.lengthSq() > 0.01) hud.done("move");
+      // soft auto-avoid: look a little ahead; if a surface is coming fast, slide along it instead of hitting it
+      const sp = st.vel.length();
+      if (sp > 1.3) { const dir = st.vel.clone().divideScalar(sp); const h = phys.raycast(st.pos, dir, Math.min(1.2, 0.25 + sp * 0.18)); if (h) { const into = st.vel.dot(h.normal); if (into < 0) { st.vel.addScaledVector(h.normal, -into * Math.min(1, dt * 9)); const side = new THREE.Vector3().crossVectors(h.normal, Y); if (side.lengthSq() > 1e-4) st.vel.addScaledVector(side.normalize(), (side.dot(wish) >= 0 ? 1 : -1) * Math.min(0.6, -into) * dt * 4); } } }
       flyMove(dt, L0 > 0 ? wish : null);
     }
     if (manualRub) st.rubbing = true; else if (!held("rub") && st.emote !== "rub") st.rubbing = false;
     // soft bank into turns with overshoot-free smoothing
-    const bankT = Math.max(-0.45, Math.min(0.45, -st.yawRate * 0.09)) + (st.wingR > 0 ? -0.15 : 0) + (st.wingL > 0 ? 0.15 : 0);
+    const bcap = settings.skill ? 0.45 : 0.22; const bankT = Math.max(-bcap, Math.min(bcap, -st.yawRate * 0.06)) + (st.wingR > 0 ? -0.15 : 0) + (st.wingL > 0 ? 0.15 : 0);
     st.bank += (bankT - st.bank) * Math.min(1, dt * 5);
     // fly-fly separation (and bump on fast contact)
     for (const [id, o] of others) { if (o.F.dead) continue; const d = P0.distanceTo(o.F.pos); if (d > 0 && d < RAD * 2) { if (st.vel.length() > 1.2 && bumpImmune <= 0) bumpFly(id, false); else P0.addScaledVector(tmp.subVectors(P0, o.F.pos).normalize(), RAD * 2 - d); } }
@@ -464,12 +467,14 @@ export function startFlies(world, { input, hud, save, onCount, onRent, onUnpaidN
     if (c) {
       if (c.impact > 1.6) { blip("bonk"); shake = Math.min(1, c.impact / 4); }
       // landing slowly into a surface sticks you to it
-      const pushing = wishDir ? wishDir.clone().normalize().dot(c.normal) < -0.3 : held("down");
-      if (st.takeoffCD <= 0 && c.impact < 2.2 && before < 3.2 && pushing) (perchAt.impact = c.impact), perchAt(st.pos.clone().addScaledVector(c.normal, -RAD), c.normal, c.hit?.cap);
+      const pushing = wishDir ? wishDir.clone().normalize().dot(c.normal) < -0.55 : held("down");
+      if (st.takeoffCD <= 0 && c.impact < 1.4 && before < 1.5 && pushing) (perchAt.impact = c.impact), perchAt(st.pos.clone().addScaledVector(c.normal, -RAD), c.normal, c.hit?.cap);
     } else if (st.takeoffCD <= 0 && wishDir) { const n = phys.nearest(st.pos, 0.22); if (n && wishDir.clone().normalize().dot(n.normal) < -0.5 && st.vel.length() < 1.2) st.landing = Math.max(st.landing, 0.6); }
   }
   let mobileUp = false, mobileDown = false, mobileBoost = false;
   function setPov(v) { pov = v; controls.autoRotate = !pov; controls.autoRotateSpeed = 0.35; if (pov) { controls.enabled = false; qCam.copy(camera.quaternion); } else { controls.enabled = true; camera.up.set(0, 1, 0); world.followObject(null); world.setFollow(true); input.release(); } }
+  // flight mode switch on the controls card: Assisted (default, drone-like) or Skill (left/right wing flapping)
+  { const card = document.querySelector(".gcard header"); if (card) { const b = document.createElement("button"); b.className = "gskill"; const lab = () => (b.textContent = settings.skill ? "Mode: Skill" : "Mode: Assisted"); lab(); b.title = "Assisted: easy hover flight. Skill: flap each wing yourself."; b.onclick = (e) => { e.stopPropagation(); settings.skill = !settings.skill; save.set("settings", settings); lab(); toast && toast(settings.skill ? "Skill mode: Q/R or mouse buttons flap each wing" : "Assisted mode: easy hover flight"); }; card.insertBefore(b, card.lastChild); } }
   spawnAtNest(false); setPov(true); qCam.setFromEuler(new THREE.Euler(st.pitch, st.yaw, 0, "YXZ"));
   return {
     markGold: () => {}, me, setPov, isPov: () => pov, payRent, paid, onDeath: (f) => (onDeath = f), state: st, settings,
