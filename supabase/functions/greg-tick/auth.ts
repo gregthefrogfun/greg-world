@@ -15,7 +15,6 @@ export async function sha256(s: string) {
   return [...new Uint8Array(h)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-// Who is calling: the owner (admin key or allowlisted Supabase login), the cron, or nobody.
 export async function who(req: Request): Promise<"owner" | "cron" | null> {
   const key = req.headers.get("x-greg-key"), cron = req.headers.get("x-greg-cron");
   if (key || cron) {
@@ -33,19 +32,11 @@ export async function who(req: Request): Promise<"owner" | "cron" | null> {
   return null;
 }
 
-// Read-only browsing for Greg: only these hosts, GET only, small responses.
 export const ALLOWED_HOSTS = [
-  "gamma-api.polymarket.com", "clob.polymarket.com",
-  "api.elections.kalshi.com",
-  "api.manifold.markets",
-  "api-mainnet.magiceden.dev", "api-mainnet.magiceden.io",
-  "api.mainnet.tensordev.io",
-  "api.collectorcrypt.com", "collectorcrypt.com",
-  "api.coingecko.com",
-  "en.wikipedia.org",
-  "api.pokemontcg.io",
-  "www.gutenberg.org", "gutenberg.org",
-  "api.dexscreener.com",
+  "gamma-api.polymarket.com", "clob.polymarket.com", "api.elections.kalshi.com", "api.manifold.markets",
+  "api-mainnet.magiceden.dev", "api-mainnet.magiceden.io", "api.mainnet.tensordev.io", "api.collectorcrypt.com", "collectorcrypt.com",
+  "api.coingecko.com", "en.wikipedia.org", "api.pokemontcg.io", "www.gutenberg.org", "gutenberg.org", "api.dexscreener.com",
+  "collectionapi.metmuseum.org",
 ];
 export async function browse(url: string, max = 1_000_000, extraHeaders: Record<string, string> = {}): Promise<{ ok: boolean; status?: number; data?: any; text?: string; error?: string }> {
   let u: URL; try { u = new URL(url); } catch { return { ok: false, error: "bad url" }; }
@@ -54,6 +45,6 @@ export async function browse(url: string, max = 1_000_000, extraHeaders: Record<
     const r = await fetch(u, { headers: { "user-agent": "GregTheFrog/1.0 (+https://gregthefrog.fun)", accept: "application/json,text/plain,*/*", ...extraHeaders }, signal: AbortSignal.timeout(15000), redirect: "follow" });
     const t = (await r.text()).slice(0, max);
     let data: any = undefined; try { data = JSON.parse(t); } catch { /* not json */ }
-    return { ok: r.ok, status: r.status, data, text: data ? undefined : t.slice(0, 4000) };
+    return { ok: r.ok, status: r.status, data, text: data ? undefined : t.slice(0, Math.max(4000, max)) };
   } catch (e) { return { ok: false, error: String(e).slice(0, 200) }; }
 }

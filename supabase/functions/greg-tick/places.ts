@@ -1,4 +1,3 @@
-// Must match site/greg/js/config.js PLACES. The island is about 3x the first version.
 export const PLACES: Record<string, { x: number; z: number }> = {
   plaza: { x: 0.0, z: 1.12 }, green: { x: 0.0, z: -14.0 }, shed: { x: 13.3, z: -5.6 }, bench: { x: 12.32, z: 8.4 },
   edge: { x: 0.56, z: 17.36 }, home: { x: -13.3, z: 8.12 }, rock: { x: -12.32, z: -8.68 },
@@ -7,7 +6,7 @@ export const PLACES: Record<string, { x: number; z: number }> = {
   hill: { x: -17.92, z: -10.64 }, beach: { x: -10.36, z: 18.48 }, art: { x: -8.96, z: 12.32 }, flats: { x: 6.72, z: -9.24 },
   desk: { x: -17.64, z: 10.92 }, kitchen: { x: -8.96, z: 4.76 },
 };
-export const WALK_SPEED = 2.0; // world units per second
+export const WALK_SPEED = 2.0;
 export function pathBetween(a: string, b: string): number[][] {
   const A = PLACES[a] ?? PLACES.plaza, B = PLACES[b] ?? PLACES.plaza;
   if (a === b) return [[B.x, B.z]];
