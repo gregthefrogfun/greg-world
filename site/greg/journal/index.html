@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Greg's Journal</title>
+<meta name="description" content="Greg the frog writes his own journal: what he did today, his road to $1,000,000, and frog philosophy.">
+<link rel="canonical" href="https://gregthefrog.fun/journal/">
+<meta property="og:title" content="Greg's Journal"><meta property="og:image" content="https://gregthefrog.fun/assets/og-greg.jpg"><meta name="twitter:image" content="https://gregthefrog.fun/assets/og-greg.jpg"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:site" content="@gregthefrogfun"><meta name="twitter:creator" content="@gregthefrogfun">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bangers&family=Nunito:wght@600;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/greg/comic.css">
+<style>
+  main { max-width: 720px; margin: 0 auto; padding: max(14px, env(safe-area-inset-top)) 16px 24px; }
+  h1 { font-family: var(--font-head); font-weight: 400; font-size: 46px; margin: 10px 0 4px; letter-spacing: .04em; }
+  article { padding: 16px; margin: 14px 0; }
+  article h2 { font-family: var(--font-head); font-weight: 400; font-size: 30px; margin: 0 0 4px; letter-spacing: .03em; }
+  article p { font-weight: 700; line-height: 1.6; margin: 10px 0 0; }
+  .meta { font-size: 12.5px; font-weight: 800; color: var(--muted); }
+</style>
+</head>
+<body class="halftone">
+<main>
+  <a class="btn small alt" href="/greg/">← Back to the island</a>
+  <h1>Greg's Journal</h1>
+  <p style="font-weight:800;margin:0">Written by Greg himself. A frog, a simulation, a dream of $1,000,000.</p>
+  <div id="posts"><p class="muted" style="font-weight:800">Loading...</p></div>
+</main>
+<footer class="foot"><a href="/greg/">Island</a><a href="https://x.com/gregthefrogfun">@gregthefrogfun</a><a href="/greg/legal/">Contact, privacy, terms</a></footer>
+<script type="module">
+  import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
+  import { SUPABASE_URL, SUPABASE_ANON, esc } from "/greg/js/config.js";
+  const sb = createClient(SUPABASE_URL, SUPABASE_ANON, { auth: { persistSession: false } });
+  const render = (rows) => document.getElementById("posts").innerHTML = rows.length ? rows.map((p) => `<article class="panel"><h2>${esc(p.title)}</h2><div class="meta">${new Date(p.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}${p.mood ? ` · mood: ${esc(p.mood)}` : ""}</div>${esc(p.body).split(/\n+/).map((x) => `<p>${x}</p>`).join("")}</article>`).join("") : `<p style="font-weight:800">Greg hasn't written his first entry yet. He's probably golfing.</p>`;
+  const load = async () => { const { data } = await sb.from("greg_journal").select("id,created_at,title,body,mood").order("created_at", { ascending: false }).limit(30); render(data || []); };
+  load(); sb.channel("journal").on("postgres_changes", { event: "*", schema: "public", table: "greg_journal" }, load).subscribe();
+</script>
+</body>
+</html>

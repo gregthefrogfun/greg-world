@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
+<title>Greg's Golf Sim</title>
+<meta name="description" content="Play Greg the frog's own mini golf course. He built it himself. He says it's the best course in any pond.">
+<meta property="og:image" content="https://gregthefrog.fun/assets/og-greg.jpg"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://gregthefrog.fun/assets/og-greg.jpg"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bangers&family=Nunito:wght@600;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/comic.css">
+<style>
+  html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+  body { display: flex; flex-direction: column; background: #6cc04a; }
+  header { display: flex; align-items: center; gap: 10px; padding: max(10px, env(safe-area-inset-top)) 12px 10px; }
+  header .h { font-size: 28px; flex: 1; }
+  .score { padding: 6px 12px; font-weight: 900; font-size: 14px; }
+  #wrap { flex: 1; position: relative; display: grid; place-items: center; padding: 0 12px; min-height: 0; }
+  canvas { touch-action: none; border: 4px solid var(--ink); border-radius: 18px; box-shadow: 5px 5px 0 var(--ink); background: #8be06a; max-width: 100%; max-height: 100%; }
+  .greg { margin: 10px 12px calc(12px + env(safe-area-inset-bottom)); display: flex; gap: 10px; align-items: flex-end; }
+  .greg img { width: 64px; height: 64px; border-radius: 50%; border: 3px solid var(--ink); object-fit: cover; object-position: 50% 15%; background: var(--paper2); flex: none; }
+  .greg .bubble { flex: 1; font-size: 14px; }
+  .greg .bubble::after { left: -10px; bottom: 14px; transform: skewY(25deg) rotate(45deg); border-right: 0; border-bottom: 3px solid var(--ink); border-left: 3px solid var(--ink); }
+</style>
+</head>
+<body>
+<header><a href="/world/" class="btn small alt" aria-label="Back to the island">←</a><p class="h">Greg's Golf Sim</p><span class="score panel" id="score">Hole 1 · 0 strokes</span></header>
+<div id="wrap"><canvas id="g" width="360" height="560" aria-label="Mini golf course. Drag back from the ball to aim, release to putt."></canvas></div>
+<div class="greg"><img src="/assets/greg-full.webp" alt="Greg"><div class="bubble" id="say">Welcome to the greatest course in any pond. Drag back from the ball and let go. Like me, but worse.</div></div>
+<script>
+(() => {
+  const c = document.getElementById('g'), x = c.getContext('2d');
+  const W = 360, H = 560, R = 7;
+  const HOLES = [
+    { par: 2, ball: [180, 480], cup: [180, 90], walls: [[60, 250, 160, 18], [200, 330, 120, 18]], water: [], sand: [[230, 140, 70, 50]] },
+    { par: 3, ball: [70, 490], cup: [290, 80], walls: [[0, 300, 240, 18], [120, 170, 240, 18]], water: [[250, 360, 110, 90]], sand: [] },
+    { par: 3, ball: [180, 500], cup: [180, 70], walls: [[90, 380, 18, 120], [252, 380, 18, 120], [130, 230, 100, 18]], water: [[0, 120, 120, 70], [240, 120, 120, 70]], sand: [[150, 300, 60, 40]], lily: [180, 170] },
+  ];
+  const BRAG = {
+    sink: ["In the cup! Nice. Not as nice as when I do it, but nice.", "Beautiful putt. I taught you that. Just now. By existing.", "You sank it! I designed that hole, so really, I sank it."],
+    ace: ["Hole in one?! That's my move. I'm flattered. Also furious.", "An ace! Only the second best golfer here could do that."],
+    water: ["Water hazard. It's a pond. I warned nobody.", "Splash! The fish say thanks."],
+    sand: ["Bunker. Very sandy. I imported that sand. Best sand."],
+    done: (s, p) => s <= p ? `Course done in ${s}. Par is ${p}. Impressive. My record is ${p - 3}. Allegedly.` : `Course done in ${s}. Par is ${p}. Don't worry, I've seen worse. Never from me.`,
+  };
+  const pick = a => a[Math.floor(Math.random() * a.length)];
+  const say = t => document.getElementById('say').textContent = t;
+  let hole = 0, strokes = 0, total = 0, ball, vel = [0, 0], moving = false, drag = null, last = null;
+  let best = null; try { best = JSON.parse(localStorage.getItem('greg_golf_best')); } catch {}
+  function load() { const h = HOLES[hole]; ball = [...h.ball]; vel = [0, 0]; last = [...ball]; strokes = 0; moving = false; upd(); }
+  const upd = () => document.getElementById('score').textContent = `Hole ${hole + 1}/3 · ${strokes} strokes${best ? ` · best ${best}` : ''}`;
+  const inR = (p, r) => p[0] > r[0] && p[0] < r[0] + r[2] && p[1] > r[1] && p[1] < r[1] + r[3];
+  function step() {
+    const h = HOLES[hole];
+    if (moving) {
+      const sand = h.sand.some(r => inR(ball, r));
+      const f = sand ? 0.92 : 0.985;
+      ball[0] += vel[0]; ball[1] += vel[1]; vel[0] *= f; vel[1] *= f;
+      if (ball[0] < R || ball[0] > W - R) { vel[0] *= -0.8; ball[0] = Math.max(R, Math.min(W - R, ball[0])); }
+      if (ball[1] < R || ball[1] > H - R) { vel[1] *= -0.8; ball[1] = Math.max(R, Math.min(H - R, ball[1])); }
+      for (const w of h.walls) if (inR([ball[0], ball[1]], [w[0] - R, w[1] - R, w[2] + 2 * R, w[3] + 2 * R])) {
+        const px = ball[0] - vel[0], py = ball[1] - vel[1];
+        if (px < w[0] - R || px > w[0] + w[2] + R) vel[0] *= -0.8; else vel[1] *= -0.8;
+        ball[0] = px; ball[1] = py;
+      }
+      if (h.lily) { const dx = ball[0] - h.lily[0], dy = ball[1] - h.lily[1], d = Math.hypot(dx, dy); if (d < 28 + R) { const nx = dx / d, ny = dy / d, dot = vel[0] * nx + vel[1] * ny; vel[0] = (vel[0] - 2 * dot * nx) * 1.15; vel[1] = (vel[1] - 2 * dot * ny) * 1.15; ball[0] = h.lily[0] + nx * (29 + R); ball[1] = h.lily[1] + ny * (29 + R); } }
+      if (h.water.some(r => inR(ball, r))) { ball = [...last]; vel = [0, 0]; moving = false; strokes++; upd(); say(pick(BRAG.water)); }
+      if (sand && Math.random() < 0.02) say(pick(BRAG.sand));
+      const dc = Math.hypot(ball[0] - h.cup[0], ball[1] - h.cup[1]), sp = Math.hypot(...vel);
+      if (dc < 11 && sp < 7) { moving = false; total += strokes; say(strokes === 1 ? pick(BRAG.ace) : pick(BRAG.sink)); setTimeout(next, 1300); ball = [-99, -99]; }
+      else if (sp < 0.08) { moving = false; vel = [0, 0]; }
+    }
+    draw(); requestAnimationFrame(step);
+  }
+  function next() {
+    hole++;
+    if (hole >= HOLES.length) {
+      const par = HOLES.reduce((s, h) => s + h.par, 0); say(BRAG.done(total, par));
+      if (!best || total < best) { best = total; try { localStorage.setItem('greg_golf_best', best); } catch {} }
+      hole = 0; total = 0; setTimeout(() => { load(); say("Again? Of course. Everyone wants another round on my course."); }, 3500); return;
+    }
+    load();
+  }
+  function rect(r, col) { x.fillStyle = col; x.strokeStyle = '#141218'; x.lineWidth = 3; x.beginPath(); x.roundRect(r[0], r[1], r[2], r[3], 8); x.fill(); x.stroke(); }
+  function draw() {
+    const h = HOLES[hole]; x.clearRect(0, 0, W, H);
+    for (let i = 0; i < 14; i++) { x.fillStyle = i % 2 ? '#8be06a' : '#80d861'; x.fillRect(0, i * 40, W, 40); }
+    h.water.forEach(r => rect(r, '#4ab8ff')); h.sand.forEach(r => rect(r, '#f6e2a4')); h.walls.forEach(r => rect(r, '#b57a45'));
+    if (h.lily) { x.fillStyle = '#43b049'; x.strokeStyle = '#141218'; x.lineWidth = 3; x.beginPath(); x.arc(h.lily[0], h.lily[1], 28, 0.4, Math.PI * 2); x.lineTo(h.lily[0], h.lily[1]); x.closePath(); x.fill(); x.stroke(); }
+    x.fillStyle = '#141218'; x.beginPath(); x.arc(h.cup[0], h.cup[1], 10, 0, 7); x.fill();
+    x.strokeStyle = '#fff'; x.lineWidth = 3; x.beginPath(); x.moveTo(h.cup[0], h.cup[1]); x.lineTo(h.cup[0], h.cup[1] - 50); x.stroke();
+    x.fillStyle = '#ff4a3a'; x.beginPath(); x.moveTo(h.cup[0], h.cup[1] - 50); x.lineTo(h.cup[0] + 26, h.cup[1] - 42); x.lineTo(h.cup[0], h.cup[1] - 34); x.fill();
+    if (drag && !moving) { const dx = drag[0] - ball[0], dy = drag[1] - ball[1]; x.setLineDash([6, 6]); x.strokeStyle = '#141218'; x.lineWidth = 3; x.beginPath(); x.moveTo(ball[0], ball[1]); x.lineTo(ball[0] - dx, ball[1] - dy); x.stroke(); x.setLineDash([]); }
+    x.fillStyle = '#fff'; x.strokeStyle = '#141218'; x.lineWidth = 2.5; x.beginPath(); x.arc(ball[0], ball[1], R, 0, 7); x.fill(); x.stroke();
+    x.font = '900 13px Nunito, sans-serif'; x.fillStyle = '#141218'; x.fillText(`PAR ${h.par}`, 12, H - 12);
+  }
+  const pos = e => { const r = c.getBoundingClientRect(); return [(e.clientX - r.left) * W / r.width, (e.clientY - r.top) * H / r.height]; };
+  c.addEventListener('pointerdown', e => { if (moving) return; c.setPointerCapture(e.pointerId); drag = pos(e); });
+  c.addEventListener('pointermove', e => { if (drag) drag = pos(e); });
+  c.addEventListener('pointerup', e => {
+    if (!drag || moving) return; const dx = drag[0] - ball[0], dy = drag[1] - ball[1]; drag = null;
+    const p = Math.min(140, Math.hypot(dx, dy)); if (p < 6) return;
+    const a = Math.atan2(-dy, -dx), s = p / 9; vel = [Math.cos(a) * s, Math.sin(a) * s]; last = [...ball]; moving = true; strokes++; upd();
+  });
+  function fit() { const wrap = document.getElementById('wrap'); const s = Math.min(wrap.clientWidth / W, wrap.clientHeight / H); c.style.width = W * s + 'px'; c.style.height = H * s + 'px'; }
+  addEventListener('resize', fit); fit(); load(); step();
+})();
+</script>
+</body>
+</html>

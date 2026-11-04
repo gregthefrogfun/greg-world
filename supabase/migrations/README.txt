@@ -1,0 +1,2 @@
+-- Applied to project mdggkjocllyqxpthvtop via the Supabase MCP on 2026-11-04 as migrations greg_world_v1, greg_world_v2_posts_projects and greg_world_v3_mail_tools (see supabase_migrations.schema_migrations for the exact SQL).
+-- Secrets (admin key hash, cron secret) were inserted separately and are not stored in git.

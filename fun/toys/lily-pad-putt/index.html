@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lily Pad Putt</title>
+<style>
+  :root { --ink: #141218; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #8fe3e6; font-family: system-ui, sans-serif; color: var(--ink); }
+  main { text-align: center; padding: 16px; }
+  h1 { margin: 0 0 6px; font-size: 32px; }
+  canvas { border: 4px solid var(--ink); border-radius: 16px; background: #4ab8ff; touch-action: none; max-width: 100%; }
+  p { font-weight: 700; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Lily Pad Putt</h1>
+  <p id="msg">Drag back from the ball, let go. One hole. Very hard. Perfect.</p>
+  <canvas id="c" width="320" height="420"></canvas>
+  <p style="font-size:13px">Made by Greg the frog. Probably the best web toy ever made by a frog.</p>
+</main>
+<script>
+// Greg's first web toy. A ball, three lily pads, one cup. Water means start over.
+const c = document.getElementById('c'), x = c.getContext('2d');
+const pads = [[160, 350, 60], [110, 220, 55], [200, 100, 60]];
+const cup = [210, 90];
+let ball = [160, 370], v = [0, 0], drag = null, strokes = 0, moving = false;
+const onPad = (p) => pads.some(([a, b, r]) => Math.hypot(p[0] - a, p[1] - b) < r);
+const say = (t) => (document.getElementById('msg').textContent = t);
+function loop() {
+  if (moving) {
+    ball[0] += v[0]; ball[1] += v[1]; v[0] *= 0.98; v[1] *= 0.98;
+    if (Math.hypot(...v) < 0.1) {
+      moving = false;
+      if (!onPad(ball)) { say('Splash! Back to the start. It happens to the best. Not to me.'); ball = [160, 370]; }
+    }
+    if (Math.hypot(ball[0] - cup[0], ball[1] - cup[1]) < 9 && Math.hypot(...v) < 5) { moving = false; say(strokes === 1 ? 'HOLE IN ONE. You are almost as good as me.' : `In the cup in ${strokes}. Greg did it in 1. Allegedly.`); strokes = 0; ball = [160, 370]; v = [0, 0]; }
+  }
+  x.clearRect(0, 0, 320, 420);
+  for (const [a, b, r] of pads) { x.fillStyle = '#43b049'; x.strokeStyle = '#141218'; x.lineWidth = 3; x.beginPath(); x.arc(a, b, r, 0.35, Math.PI * 2); x.lineTo(a, b); x.closePath(); x.fill(); x.stroke(); }
+  x.fillStyle = '#141218'; x.beginPath(); x.arc(...cup, 8, 0, 7); x.fill();
+  x.fillStyle = '#ff4a3a'; x.fillRect(cup[0], cup[1] - 40, 3, 40); x.beginPath(); x.moveTo(cup[0] + 3, cup[1] - 40); x.lineTo(cup[0] + 24, cup[1] - 33); x.lineTo(cup[0] + 3, cup[1] - 26); x.fill();
+  if (drag) { x.setLineDash([5, 5]); x.beginPath(); x.moveTo(...ball); x.lineTo(2 * ball[0] - drag[0], 2 * ball[1] - drag[1]); x.stroke(); x.setLineDash([]); }
+  x.fillStyle = '#fff'; x.beginPath(); x.arc(...ball, 6, 0, 7); x.fill(); x.stroke();
+  requestAnimationFrame(loop);
+}
+const pos = (e) => { const r = c.getBoundingClientRect(); return [(e.clientX - r.left) * 320 / r.width, (e.clientY - r.top) * 420 / r.height]; };
+c.onpointerdown = (e) => { if (!moving) drag = pos(e); };
+c.onpointermove = (e) => { if (drag) drag = pos(e); };
+c.onpointerup = () => { if (!drag) return; v = [(ball[0] - drag[0]) / 10, (ball[1] - drag[1]) / 10]; drag = null; moving = true; strokes++; };
+loop();
+</script>
+</body>
+</html>

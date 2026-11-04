@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Greg Owner Panel</title>
+<meta name="robots" content="noindex,nofollow">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bangers&family=Nunito:wght@600;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/greg/comic.css">
+<style>
+  main { max-width: 980px; margin: 0 auto; padding: max(14px, env(safe-area-inset-top)) 16px 40px; }
+  h1 { font-family: var(--font-head); font-weight: 400; font-size: 40px; margin: 6px 0 12px; letter-spacing: .04em; }
+  .card { padding: 14px; margin-bottom: 14px; } .card h2 { font-family: var(--font-head); font-weight: 400; font-size: 26px; margin: 0 0 10px; letter-spacing: .04em; }
+  .grid { display: grid; gap: 14px; } @media (min-width: 900px) { .grid { grid-template-columns: 1fr 1fr; } }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .item { padding: 10px; background: #fff; border: 2.5px solid var(--ink); border-radius: 12px; margin-bottom: 8px; }
+  .item p { margin: 4px 0; font-weight: 700; }
+  input, select, textarea { border: 2.5px solid var(--ink); border-radius: 10px; padding: 9px 10px; background: #fff; font-weight: 700; min-height: 42px; width: 100%; }
+  input[type=checkbox] { width: 22px; height: 22px; min-height: 0; }
+  label.f { display: flex; flex-direction: column; gap: 4px; font-weight: 900; font-size: 13px; flex: 1; min-width: 120px; }
+  .ok { color: #1f8a2a; font-weight: 900; } .no { color: #c0392b; font-weight: 900; }
+  .muted { font-size: 13px; }
+  #login { max-width: 440px; margin: 40px auto; padding: 18px; }
+  .scroll { max-height: 420px; overflow-y: auto; }
+</style>
+</head>
+<body>
+<main>
+  <div class="row" style="justify-content:space-between"><h1>Greg Owner Panel</h1><div class="row"><a class="btn small alt" href="/greg/world/">Open world</a><button class="btn small alt" id="logout" hidden>Sign out</button></div></div>
+
+  <section id="login" class="panel" hidden>
+    <h2 class="h" style="font-size:28px;margin-bottom:10px">Owner sign in</h2>
+    <label class="f">Admin key<input id="key" type="password" autocomplete="current-password" placeholder="greg-..."></label>
+    <button class="btn" id="keyGo" style="margin-top:10px;width:100%">Sign in with key</button>
+    <p class="muted" style="margin:14px 0 6px;font-weight:800">Or with the owner email (magic link)</p>
+    <div class="row"><input id="email" type="email" placeholder="owner email" autocomplete="email" style="flex:1"><button class="btn alt" id="emailGo">Send link</button></div>
+    <p class="muted" id="loginMsg"></p>
+  </section>
+
+  <div id="app" hidden>
+    <div class="grid">
+      <section class="card panel" id="status"></section>
+      <section class="card panel" id="health"></section>
+    </div>
+    <div class="grid">
+      <section class="card panel"><h2>Request queue</h2><div id="wishes" class="scroll"></div>
+        <details style="margin-top:8px"><summary style="font-weight:900;cursor:pointer">Add a wish for Greg</summary><div class="row" style="margin-top:8px"><input id="wTitle" placeholder="Wish title"><input id="wWhy" placeholder="Why he wants it"><button class="btn small" id="wAdd">Add</button></div></details>
+      </section>
+      <section class="card panel"><h2>Add to his world</h2>
+        <div class="row"><label class="f">Name<input id="iName" placeholder="Golden putter"></label><label class="f" style="max-width:90px">Emoji<input id="iEmoji" value="⭐"></label></div>
+        <div class="row" style="margin-top:8px"><label class="f">Type<select id="iKind"><option value="item">Item</option><option value="place">Place</option></select></label><label class="f">Note (Greg sees it)<input id="iNote" placeholder="For your trophy shelf"></label></div>
+        <button class="btn" id="iAdd" style="margin-top:10px">Add to the island</button>
+        <div id="items" class="scroll" style="margin-top:10px"></div>
+      </section>
+    </div>
+    <div class="grid">
+      <section class="card panel"><h2>Fan mailbox</h2><div id="mail" class="scroll"></div></section>
+      <section class="card panel"><h2>Greg's X account</h2><div id="x"></div><div id="posts" class="scroll" style="margin-top:10px"></div></section>
+    </div>
+    <section class="card panel"><h2>Wallet (phase 2, off by default)</h2><div id="wallet"></div></section>
+  </div>
+</main>
+<script type="module">
+import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
+import { SUPABASE_URL, SUPABASE_ANON, FN, esc, ago } from "/greg/js/config.js";
+const sb = createClient(SUPABASE_URL, SUPABASE_ANON, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storageKey: "greg-owner" } });
+const $ = (s) => document.getElementById(s);
+let KEY = null; try { KEY = localStorage.getItem("greg_admin_key"); } catch {}
+let D = null;
+
+async function call(op, extra = {}) {
+  const h = { "content-type": "application/json", apikey: SUPABASE_ANON };
+  if (KEY) h["x-greg-key"] = KEY;
+  const { data } = await sb.auth.getSession(); if (data.session) h.authorization = "Bearer " + data.session.access_token;
+  const r = await fetch(FN + "/greg-admin", { method: "POST", headers: h, body: JSON.stringify({ op, ...extra }) });
+  const j = await r.json().catch(() => ({}));
+  if (r.status === 401) { showLogin("Not signed in as the owner."); throw new Error("401"); }
+  if (j.error) alert(j.error);
+  return j;
+}
+function showLogin(msg) { $("login").hidden = false; $("app").hidden = true; $("logout").hidden = true; $("loginMsg").textContent = msg || ""; }
+async function boot() {
+  try { const w = await call("whoami"); if (w.owner) { $("login").hidden = true; $("app").hidden = false; $("logout").hidden = false; await refresh(); } }
+  catch (e) { showLogin(String(e.message) === "401" ? "" : "Could not reach the server. Try again."); }
+}
+$("keyGo").onclick = async () => { KEY = $("key").value.trim(); try { localStorage.setItem("greg_admin_key", KEY); } catch {} boot(); };
+$("emailGo").onclick = async () => { const { error } = await sb.auth.signInWithOtp({ email: $("email").value.trim(), options: { emailRedirectTo: location.href.split("#")[0], shouldCreateUser: false } }); $("loginMsg").textContent = error ? error.message : "Check your inbox for the sign in link."; };
+$("logout").onclick = async () => { try { localStorage.removeItem("greg_admin_key"); } catch {} KEY = null; await sb.auth.signOut(); showLogin(); };
+
+async function refresh() { D = await call("overview"); render(); }
+const yes = (v) => v ? '<span class="ok">yes</span>' : '<span class="no">no</span>';
+function render() {
+  const s = D.state, st = D.settings, w = D.wallet, h = D.health;
+  $("status").innerHTML = `<h2>Greg right now</h2><p style="font-weight:900">${esc(s.status_line)}</p><p class="muted">"${esc(s.speech || "")}"</p><p class="muted">Brain: ${esc(s.brain)} · ticks: ${s.tick_count} · mail: ${s.mail_unread} unread · mood: ${esc(s.stress)}</p>
+  <div class="row"><button class="btn ${s.paused ? "" : "orange"}" data-op="pause">${s.paused ? "▶ Resume Greg" : "⏸ Pause Greg"}</button>
+  <select id="tAction" style="max-width:200px"><option value="">Let Greg decide</option>${["golf","improve_course","music","build_toy","build_tool","browse","search","eat","read_mail","sleep","diary","think","node"].map((a) => `<option>${a}</option>`).join("")}</select><button class="btn alt" data-op="tick">Run one tick now</button></div>
+  <p class="muted">The automatic schedule (every 10 minutes) is not switched on yet.</p>`;
+  $("health").innerHTML = `<h2>Setup check</h2><p>Claude brain key (ANTHROPIC_API_KEY): ${yes(h.llm)}</p><p>Claude brain switched on: ${yes(st.llm_enabled)} <button class="btn small alt" data-set="llm_enabled" data-val="${!st.llm_enabled}">${st.llm_enabled ? "Turn off" : "Turn on"}</button></p><p>X credentials set: ${yes(h.x)}</p><p>Wallet encryption secret (GREG_WALLET_KEK): ${yes(h.walletKek)}</p><p class="muted">Tools Greg built: ${(D.tools || []).map((t) => esc(t.name)).join(", ") || "none yet"}</p>`;
+  $("wishes").innerHTML = D.wishes.map((x) => `<div class="item"><div class="row" style="justify-content:space-between"><b>${esc(x.title)}</b><span class="badge ${x.status}">${x.status}</span></div><p class="muted">${esc(x.why || "")} · 📣 ${x.votes} cheers${x.is_demo ? " · demo" : ""}</p>${x.status === "waiting" ? `<div class="row"><input placeholder="emoji" style="max-width:70px" id="ge${x.id}" value="🎁"><button class="btn small" data-grant="${x.id}">Grant</button><button class="btn small alt" data-decline="${x.id}">Decline</button></div>` : x.reaction ? `<p>🐸 ${esc(x.reaction)}</p>` : ""}</div>`).join("") || "<p>No requests.</p>";
+  $("items").innerHTML = D.items.map((i) => `<div class="item row" style="justify-content:space-between"><span>${esc(i.emoji || "")} <b>${esc(i.name)}</b> <span class="muted">${i.kind}</span></span><button class="btn small alt" data-rm="${i.id}">Remove</button></div>`).join("");
+  $("mail").innerHTML = D.questions.map((q) => `<div class="item"><p class="muted">${q.kind} · ${q.status}${q.sort ? " · " + q.sort : ""} · ${ago(q.created_at)}</p><p>${esc(q.question)}</p>${q.answer ? `<p>🐸 ${esc(q.answer)}</p>` : ""}${q.sort !== "spam" ? `<button class="btn small alt" data-spam="${q.id}">Hide as spam</button>` : `<button class="btn small alt" data-unspam="${q.id}">Restore</button>`}</div>`).join("") || "<p>No notes yet.</p>";
+  $("x").innerHTML = `<p class="muted">Greg's own X account must be created by you. Then add GREG_X_API_KEY, GREG_X_API_SECRET, GREG_X_ACCESS_TOKEN and GREG_X_ACCESS_SECRET as Supabase function secrets.</p>
+  <div class="row"><label class="row" style="font-weight:900"><input type="checkbox" id="xOn" ${st.x_enabled ? "checked" : ""}> Posting on</label>
+  <select id="xMode" style="max-width:240px"><option value="approve" ${st.x_mode === "approve" ? "selected" : ""}>Owner approves each post</option><option value="free" ${st.x_mode === "free" ? "selected" : ""}>Post freely</option></select><button class="btn small" id="xSave">Save</button></div>`;
+  $("posts").innerHTML = D.posts.map((p) => `<div class="item"><p class="muted">${p.status}${p.is_demo ? " · demo" : ""} · ${ago(p.created_at)}${p.error ? " · " + esc(p.error) : ""}</p><textarea id="pt${p.id}" rows="2">${esc(p.text)}</textarea>${["draft", "approved"].includes(p.status) ? `<div class="row" style="margin-top:6px"><button class="btn small" data-post="approve" data-id="${p.id}">Approve</button><button class="btn small alt" data-post="edit" data-id="${p.id}">Save edit</button><button class="btn small alt" data-post="reject" data-id="${p.id}">Reject</button></div>` : ""}</div>`).join("");
+  const req = D.requests.map((r) => `<div class="item"><p class="muted">${r.kind} · ${r.status} · ${ago(r.created_at)}</p><p>${esc(r.description)} · <b>${r.amount_sol} SOL</b> · ${esc(r.marketplace || "")}</p>${r.reason ? `<p class="muted">${esc(r.reason)}</p>` : ""}${r.status === "pending" ? `<div class="row"><button class="btn small" data-wreq="approve" data-id="${r.id}">Approve</button><button class="btn small alt" data-wreq="reject" data-id="${r.id}">Reject</button></div>` : ""}</div>`).join("");
+  $("wallet").innerHTML = `${w.address ? `<p>Address: <code style="word-break:break-all">${esc(w.address)}</code></p><p>Balance: ${w.balance_sol ?? "?"} SOL <button class="btn small alt" id="bal">Refresh</button></p>` : `<p>No wallet yet. First set the GREG_WALLET_KEK function secret yourself (32+ random characters, only you know it). Then create the wallet here. The private key is generated on the server, stored encrypted and never shown.</p><button class="btn alt" id="create" ${h.walletKek ? "" : "disabled"}>Create Greg's wallet</button>`}
+  <div class="row" style="margin-top:10px"><label class="row" style="font-weight:900"><input type="checkbox" id="wOn" ${w.enabled ? "checked" : ""}> Spending enabled</label><label class="row" style="font-weight:900"><input type="checkbox" id="wKill" ${w.kill_switch ? "checked" : ""}> Kill switch</label></div>
+  <div class="row" style="margin-top:8px"><label class="f">Per purchase cap (SOL)<input id="wTx" type="number" step="0.01" value="${w.per_tx_cap_sol}"></label><label class="f">Daily cap (SOL)<input id="wDay" type="number" step="0.01" value="${w.daily_cap_sol}"></label><label class="f">Ask me above (SOL)<input id="wThr" type="number" step="0.01" value="${w.approval_threshold_sol}"></label></div>
+  <label class="f" style="margin-top:8px">Allowed program ids (comma separated)<input id="wProg" value="${esc((w.allowed_programs || []).join(","))}"></label>
+  <label class="f" style="margin-top:8px">Allowed marketplaces<input id="wMkt" value="${esc((w.allowed_marketplaces || []).join(","))}"></label>
+  <button class="btn" id="wSave" style="margin-top:10px">Save wallet settings</button>
+  <h3 style="font-family:var(--font-head);font-weight:400;font-size:22px;margin:14px 0 6px">Purchase and bet requests</h3>${req || "<p class='muted'>None yet.</p>"}`;
+  bind();
+}
+function bind() {
+  document.querySelectorAll("[data-op=pause]").forEach((b) => (b.onclick = async () => { await call("pause", { paused: !D.state.paused }); refresh(); }));
+  document.querySelectorAll("[data-op=tick]").forEach((b) => (b.onclick = async () => { b.disabled = true; const a = $("tAction").value; const r = await call("tick", { payload: { force: true, ...(a ? { action: a } : {}) } }); b.disabled = false; if (r.say) alert(`Greg: ${r.action}\n"${r.say}"`); refresh(); }));
+  document.querySelectorAll("[data-set]").forEach((b) => (b.onclick = async () => { await call("settings", { [b.dataset.set]: b.dataset.val === "true" }); refresh(); }));
+  document.querySelectorAll("[data-grant]").forEach((b) => (b.onclick = async () => { b.disabled = true; const id = Number(b.dataset.grant); const r = await call("grant_wish", { id, emoji: $("ge" + id).value }); if (r.reaction) alert("Greg: " + r.reaction); refresh(); }));
+  document.querySelectorAll("[data-decline]").forEach((b) => (b.onclick = async () => { await call("decline_wish", { id: Number(b.dataset.decline) }); refresh(); }));
+  document.querySelectorAll("[data-rm]").forEach((b) => (b.onclick = async () => { if (confirm("Remove this from the island?")) { await call("remove_item", { id: Number(b.dataset.rm) }); refresh(); } }));
+  document.querySelectorAll("[data-spam]").forEach((b) => (b.onclick = async () => { await call("question", { id: Number(b.dataset.spam), status: "skipped" }); refresh(); }));
+  document.querySelectorAll("[data-unspam]").forEach((b) => (b.onclick = async () => { await call("question", { id: Number(b.dataset.unspam), status: "new" }); refresh(); }));
+  document.querySelectorAll("[data-post]").forEach((b) => (b.onclick = async () => { await call("post", { id: Number(b.dataset.id), action: b.dataset.post, text: $("pt" + b.dataset.id).value }); refresh(); }));
+  document.querySelectorAll("[data-wreq]").forEach((b) => (b.onclick = async () => { if (b.dataset.wreq === "approve" && !confirm("Approve this real on-chain purchase?")) return; await call("wallet", { payload: { op: b.dataset.wreq, id: Number(b.dataset.id) } }); refresh(); }));
+  if ($("xSave")) $("xSave").onclick = async () => { await call("settings", { x_enabled: $("xOn").checked, x_mode: $("xMode").value }); refresh(); };
+  if ($("create")) $("create").onclick = async () => { if (!confirm("Create Greg's Solana wallet now? Spending stays off.")) return; const r = await call("wallet", { payload: { op: "create" } }); if (r.address) alert("Greg's address: " + r.address); refresh(); };
+  if ($("bal")) $("bal").onclick = async () => { await fetch(FN + "/greg-wallet", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ op: "balance" }) }); refresh(); };
+  $("wSave").onclick = async () => {
+    if ($("wOn").checked && !$("wKill").checked && !confirm("This lets Greg spend real SOL within your caps. Continue?")) return;
+    await call("wallet_settings", { enabled: $("wOn").checked, kill_switch: $("wKill").checked, per_tx_cap_sol: Number($("wTx").value), daily_cap_sol: Number($("wDay").value), approval_threshold_sol: Number($("wThr").value), allowed_programs: $("wProg").value.split(",").map((s) => s.trim()).filter(Boolean), allowed_marketplaces: $("wMkt").value.split(",").map((s) => s.trim()).filter(Boolean) });
+    refresh();
+  };
+}
+$("iAdd").onclick = async () => { const r = await call("add_item", { name: $("iName").value, emoji: $("iEmoji").value, kind: $("iKind").value, note: $("iNote").value }); if (r.reaction) alert("Greg: " + r.reaction); $("iName").value = ""; refresh(); };
+$("wAdd").onclick = async () => { await call("add_wish", { title: $("wTitle").value, why: $("wWhy").value }); $("wTitle").value = ""; $("wWhy").value = ""; refresh(); };
+sb.auth.onAuthStateChange((e) => { if (e === "SIGNED_IN") boot(); });
+boot();
+</script>
+</body>
+</html>

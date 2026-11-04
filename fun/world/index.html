@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
+<title>Greg the Frog, live on Freg Island</title>
+<meta name="description" content="Watch Greg the frog live on his 3D comic island. Everyone sees the same Greg in real time.">
+<meta name="theme-color" content="#8fe3e6">
+<link rel="canonical" href="https://gregthefrog.fun/">
+<meta property="og:title" content="Greg the Frog, live"><meta property="og:description" content="Greg is a frog living on Freg Island. Golf, piano, big dreams. Fly in as a fly and watch him live.">
+<meta property="og:url" content="https://gregthefrog.fun/"><meta property="og:type" content="website"><meta property="og:image" content="https://gregthefrog.fun/assets/og-greg.jpg"><meta name="twitter:image" content="https://gregthefrog.fun/assets/og-greg.jpg"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:site" content="@gregthefrogfun"><meta name="twitter:creator" content="@gregthefrogfun">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🐸%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bangers&family=Nunito:wght@600;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/comic.css">
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<style>
+  html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+  #c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  .top { position: fixed; left: 0; right: 0; top: 0; padding: max(10px, env(safe-area-inset-top)) 12px 0; display: flex; flex-direction: column; gap: 8px; pointer-events: none; z-index: 5; }
+  .top > * { pointer-events: auto; }
+  .status { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--paper2); max-width: 640px; }
+  .status .txt { font-weight: 900; font-size: 15px; line-height: 1.25; flex: 1; min-width: 0; }
+  .chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding-bottom: 4px; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chip { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px; background: #fff; border: 2.5px solid var(--ink); border-radius: 999px; box-shadow: 2px 2px 0 var(--ink); font-size: 13px; font-weight: 900; cursor: pointer; white-space: nowrap; }
+  .chip[aria-pressed="true"] { background: var(--lime); }
+  .needs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; padding: 8px 10px; max-width: 640px; }
+  .need { font-size: 10.5px; font-weight: 900; text-transform: uppercase; letter-spacing: .03em; }
+  .bar { height: 9px; border: 2px solid var(--ink); border-radius: 6px; background: #fff; overflow: hidden; margin-top: 3px; }
+  .bar i { display: block; height: 100%; background: var(--frog); transition: width .6s ease; }
+  .bar i.low { background: var(--red); } .bar i.mid { background: var(--orange); }
+  #say { position: fixed; z-index: 4; transform: translate(-50%, -100%); width: max-content; max-width: min(250px, 66vw); font-size: 14px; pointer-events: none; transition: opacity .3s; }
+  #say.hide { opacity: 0; }
+  /* bottom sheet */
+  .sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; display: flex; flex-direction: column; max-height: 72dvh; transform: translateY(calc(100% - 82px - env(safe-area-inset-bottom))); transition: transform .32s cubic-bezier(.2,.8,.2,1); border-radius: 18px 18px 0 0; border-bottom: 0; }
+  .sheet.open { transform: translateY(0); }
+  .tabs { display: flex; gap: 4px; padding: 6px 8px 8px; border-bottom: 3px solid var(--ink); background: var(--paper); }
+  .sheet .body { padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
+  .tab { flex: 1; min-height: 48px; border: 2.5px solid var(--ink); border-radius: 12px; background: #fff; font-weight: 900; font-size: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; cursor: pointer; padding: 2px; }
+  .tab b { font-size: 18px; line-height: 1; }
+  .tab[aria-selected="true"] { background: var(--lime); box-shadow: 2px 2px 0 var(--ink); }
+  .body { overflow-y: auto; padding: 12px 14px 20px; flex: 1; -webkit-overflow-scrolling: touch; }
+  @media (min-width: 900px) {
+    .sheet { left: auto; right: 16px; top: 16px; bottom: 16px; width: 400px; max-height: none; transform: none; border-radius: 18px; border-bottom: 3px solid var(--ink); }
+    .top { right: 432px; }
+    .grab { display: none; }
+  }
+  .grab { width: 44px; height: 5px; border-radius: 3px; background: var(--ink); opacity: .35; margin: 6px auto 0; }
+  .sec { margin: 4px 0 16px; } .sec > h3 { font-family: var(--font-head); font-size: 22px; letter-spacing: .04em; margin: 0 0 8px; font-weight: 400; }
+  .entry { padding: 10px 12px; background: #fff; border: 2.5px solid var(--ink); border-radius: 12px; margin-bottom: 8px; }
+  .entry .meta { display: flex; gap: 6px; align-items: center; font-size: 11px; color: var(--muted); font-weight: 800; margin-bottom: 4px; flex-wrap: wrap; }
+  .entry p { margin: 0; font-weight: 700; line-height: 1.4; }
+  .entry.say { background: #fff; } .entry.think { background: #f2f0ff; } .entry.opinion { background: #fff3e6; } .entry.diary { background: var(--paper); }
+  .row { display: flex; align-items: center; gap: 10px; }
+  .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .work { background: #fff; border: 2.5px solid var(--ink); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
+  .work img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; border-bottom: 2.5px solid var(--ink); background: var(--paper2); }
+  .work .in { padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
+  .work .t { font-weight: 900; font-size: 14px; line-height: 1.2; }
+  .seg { display: flex; gap: 6px; margin-bottom: 12px; }
+  .seg button { flex: 1; min-height: 38px; border: 2.5px solid var(--ink); border-radius: 10px; background: #fff; font-weight: 900; font-size: 13px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--orange); }
+  .million { padding: 12px; background: var(--ink); color: #fff; border-radius: 14px; border: 3px solid var(--ink); }
+  .million .big { font-family: var(--font-head); font-size: 40px; color: var(--lime); letter-spacing: .03em; }
+  .million .track { height: 16px; border: 2.5px solid #fff; border-radius: 9px; overflow: hidden; margin: 8px 0 4px; background: #2a2730; }
+  .million .track i { display: block; height: 100%; background: repeating-linear-gradient(45deg, var(--lime) 0 10px, #9ad13a 10px 20px); min-width: 6px; }
+  .cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .card { aspect-ratio: 5/7; border: 2.5px solid var(--ink); border-radius: 10px; background: linear-gradient(160deg, #fff6c9, #ffd27a); position: relative; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; padding: 6px; }
+  .card img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .card .cap { position: relative; background: rgba(255,255,255,.92); border: 2px solid var(--ink); border-radius: 7px; padding: 3px 5px; font-size: 10.5px; font-weight: 900; line-height: 1.2; }
+  .card.watch { opacity: .8; border-style: dashed; }
+  .pnl.up { color: #1f8a2a; } .pnl.down { color: #c0392b; }
+  textarea { width: 100%; min-height: 90px; resize: vertical; border: 3px solid var(--ink); border-radius: 12px; padding: 10px 12px; font-weight: 700; background: #fff; }
+  .modal { position: fixed; inset: 0; z-index: 20; display: none; align-items: flex-end; justify-content: center; background: rgba(20,18,24,.35); padding: 12px; }
+  .modal.show { display: flex; } @media (min-width: 700px) { .modal { align-items: center; } }
+  .modal .panel { width: min(440px, 100%); max-height: 80dvh; overflow-y: auto; padding: 16px; position: relative; animation: pop .22s cubic-bezier(.2,1.4,.4,1); }
+  @keyframes pop { from { transform: scale(.85); opacity: 0; } }
+  .modal h2 { font-family: var(--font-head); font-size: 32px; letter-spacing: .04em; margin: 0 0 10px; font-weight: 400; }
+  .close { position: absolute; top: 8px; right: 8px; width: 40px; height: 40px; border: 2.5px solid var(--ink); border-radius: 10px; background: #fff; font-weight: 900; font-size: 18px; cursor: pointer; }
+  .toast { position: fixed; left: 50%; top: 40%; transform: translateX(-50%); z-index: 30; padding: 10px 16px; display: none; font-weight: 900; }
+  .toast.show { display: block; animation: pop .2s; }
+  #loading { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: var(--sky); transition: opacity .5s; }
+  #loading.done { opacity: 0; pointer-events: none; }
+  #loading .h { font-size: 42px; }
+  .back { text-decoration: none; }
+  .empty { padding: 14px; text-align: center; color: var(--muted); font-weight: 800; }
+  .wish .row { justify-content: space-between; }
+  .song { display: flex; align-items: center; gap: 10px; padding: 8px; background: #fff; border: 2.5px solid var(--ink); border-radius: 12px; margin-bottom: 8px; }
+  .song .play { width: 44px; height: 44px; flex: none; border-radius: 50%; border: 2.5px solid var(--ink); background: var(--lime); font-size: 16px; cursor: pointer; font-weight: 900; }
+  .song img { width: 44px; height: 44px; border-radius: 8px; border: 2px solid var(--ink); object-fit: cover; }
+  .disc { font-size: 11.5px; color: var(--muted); font-weight: 700; line-height: 1.4; margin-top: 8px; }
+  code { font-size: 12px; }
+  .meter { position: fixed; left: 50%; transform: translateX(-50%); top: calc(max(10px, env(safe-area-inset-top)) + 196px); z-index: 4; width: min(320px, 72vw); padding: 6px 10px; text-decoration: none; background: var(--ink); color: #fff; }
+  .meter .mt { display: flex; justify-content: space-between; font-size: 12px; gap: 8px; } .meter .mt span { color: var(--lime); font-weight: 900; }
+  .meter .mbar { height: 9px; border: 2px solid #fff; border-radius: 6px; overflow: hidden; margin: 4px 0 2px; background: #2a2730; }
+  .meter .mbar i { display: block; height: 100%; width: 0.3%; min-width: 4px; background: repeating-linear-gradient(45deg, var(--lime) 0 8px, #9ad13a 8px 16px); transition: width 1.2s ease; }
+  .meter .ms { font-size: 10.5px; opacity: .85; font-weight: 700; }
+  @media (min-width: 900px) { .meter { left: calc(50% - 216px); top: 18px; } }
+  body::after { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 3; background: radial-gradient(ellipse at center, transparent 55%, rgba(10,8,20,.35) 100%), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='.07'/%3E%3C/svg%3E"); }
+  body.lowq::after { display: none; }
+  .flyhud { position: fixed; right: 10px; top: calc(max(10px, env(safe-area-inset-top)) + 150px); z-index: 5; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+  .flyui { position: fixed; left: 0; right: 0; bottom: calc(96px + env(safe-area-inset-bottom)); z-index: 5; pointer-events: none; display: flex; justify-content: space-between; padding: 0 16px; }
+  .flyui > * { pointer-events: auto; }
+  .horizon { width: 74px; height: 74px; border-radius: 50%; border: 3px solid var(--ink); background: linear-gradient(#8fe3e6 50%, #6cc04a 50%); overflow: hidden; position: relative; box-shadow: 2px 2px 0 var(--ink); }
+  .horizon i { position: absolute; left: -10%; right: -10%; top: 50%; height: 3px; background: #141218; transform-origin: 50% 50%; }
+  .horizon::after { content: ""; position: absolute; left: 50%; top: 50%; width: 10px; height: 10px; margin: -5px; border-radius: 50%; background: #ff5a4a; border: 2px solid #141218; }
+  .alt { width: 14px; height: 74px; border: 3px solid var(--ink); border-radius: 8px; background: #fff; display: flex; align-items: flex-end; overflow: hidden; margin-left: 6px; } .alt i { display: block; width: 100%; background: var(--lime); }
+  .flyui > .horizon, .flyui > .alt { align-self: flex-end; }
+  .horizon.warn { border-color: #ff5a4a; animation: pulse .5s infinite; } .horizon.dead { opacity: .3; }
+  .ud button { width: auto; min-width: 56px; padding: 0 10px; font-size: 14px; }
+  body:not(.lowq)::before { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 3; background: radial-gradient(circle at 50% 50%, transparent 62%, rgba(40,10,10,.18) 80%, rgba(20,8,8,.45) 100%), repeating-radial-gradient(circle at 50% 50%, transparent 0 7px, rgba(0,0,0,.03) 7px 8px); }
+  .joy { width: 112px; height: 112px; border-radius: 50%; background: rgba(255,255,255,.35); border: 3px solid var(--ink); display: grid; place-items: center; touch-action: none; }
+  .joy .knob { width: 52px; height: 52px; border-radius: 50%; background: var(--lime); border: 3px solid var(--ink); box-shadow: 2px 2px 0 var(--ink); }
+  .ud { display: flex; flex-direction: column; gap: 10px; justify-content: flex-end; }
+  .ud button { width: 56px; height: 56px; border-radius: 14px; border: 3px solid var(--ink); background: #fff; box-shadow: 3px 3px 0 var(--ink); font-size: 20px; font-weight: 900; touch-action: none; }
+  @media (min-width: 900px) { .flyui { right: 432px; bottom: 24px; } .flyhud { right: 432px; top: 160px; } }
+  @media (hover: hover) and (pointer: fine) { .joy { opacity: .7; } }
+  .rentpop { position: fixed; left: 50%; top: 45%; transform: translate(-50%, 0); z-index: 6; font-weight: 900; font-size: 22px; color: #141218; background: var(--lime); border: 3px solid var(--ink); border-radius: 999px; padding: 6px 14px; opacity: 0; pointer-events: none; }
+  .rentpop.show { animation: rentup 1.8s ease-out; }
+  @keyframes rentup { 0% { opacity: 0; transform: translate(-50%, 10px); } 15% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -60px); } }
+
+  /* flight HUD (hud.js) */
+  .ghud { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
+  .ghud > * { pointer-events: auto; }
+  kbd { display: inline-flex; align-items: center; justify-content: center; min-width: 26px; height: 26px; padding: 0 6px; border: 2.5px solid var(--ink); border-bottom-width: 4px; border-radius: 7px; background: #fff; font: 900 12px system-ui, sans-serif; color: #141218; }
+  kbd.glow { background: #1d3b2a; color: #c9ff8a; border-color: #0d1f15; box-shadow: 0 0 12px #9cff6b, inset 0 0 6px rgba(156,255,107,.6); text-shadow: 0 0 6px #9cff6b; }
+  .gcard { position: fixed; right: 16px; bottom: 16px; width: 340px; background: rgba(255,250,236,.94); border: 3px solid var(--ink); border-radius: 14px; box-shadow: 3px 3px 0 var(--ink); padding: 8px 10px; font-size: 12px; font-weight: 800; }
+  .gcard header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; } .gcard header b { font-size: 14px; }
+  .gcard .gx { border: 2px solid var(--ink); border-radius: 7px; background: #fff; font-weight: 900; width: 26px; height: 24px; cursor: pointer; }
+  .gcard.closed .grows { display: none; } .gcard.closed { width: auto; }
+  .grows { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px 10px; } .gcard kbd { min-width: 22px; height: 21px; font-size: 10.5px; padding: 0 4px; border-bottom-width: 3px; } .gcard .grow span { font-size: 10.5px; } .grow { display: flex; align-items: center; gap: 4px; } .grow span { margin-left: auto; color: #3a3340; } .grow i { font-style: normal; color: #777; }
+  .grow.on kbd { background: var(--lime); transform: translateY(1px); }
+  .grows.big { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 14px; font-weight: 800; }
+  .gprompt { position: fixed; left: 50%; bottom: 120px; transform: translateX(-50%); display: flex; gap: 10px; align-items: center; padding: 8px 14px 8px 8px; background: rgba(20,18,24,.78); color: #fff; border-radius: 999px; font-weight: 900; font-size: 15px; pointer-events: none; }
+  .ghint { position: fixed; left: 50%; bottom: 172px; transform: translateX(-50%); display: flex; gap: 10px; align-items: center; padding: 8px 16px 8px 8px; background: rgba(255,250,236,.95); border: 3px solid var(--ink); border-radius: 999px; font-weight: 900; font-size: 14px; pointer-events: none; white-space: nowrap; }
+  .glock { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); padding: 6px 14px; background: rgba(20,18,24,.7); color: #fff; border-radius: 999px; font-weight: 800; font-size: 13px; pointer-events: none; }
+  .gind { position: fixed; left: 16px; bottom: 16px; display: flex; gap: 4px; pointer-events: none; } .gind i { font-style: normal; font-size: 10px; font-weight: 900; padding: 3px 6px; border: 2px solid var(--ink); border-radius: 6px; background: rgba(255,255,255,.7); color: #777; } .gind i.on { background: var(--lime); color: #141218; }
+  .gdisc { position: fixed; left: 50%; top: 30%; transform: translateX(-50%); padding: 8px 16px; background: var(--lime); border: 3px solid var(--ink); border-radius: 999px; font-weight: 900; pointer-events: none; }
+  .hide { display: none !important; }
+  .gstam { position: fixed; left: 16px; bottom: 44px; width: 120px; height: 10px; border: 2px solid var(--ink); border-radius: 6px; background: rgba(255,255,255,.7); overflow: hidden; pointer-events: none; } .gstam i { display: block; height: 100%; background: #4ab8ff; } .gstam.low i { background: #ff5a4a; }
+  .gwarn { position: fixed; left: 50%; top: 22%; transform: translateX(-50%); font: 900 30px system-ui; color: #ff3a2a; text-shadow: 2px 2px 0 #141218; pointer-events: none; }
+  .gsplat { position: fixed; left: 16px; bottom: 62px; padding: 3px 8px; border: 2px solid var(--ink); border-radius: 999px; background: rgba(255,255,255,.85); font-size: 11px; font-weight: 900; pointer-events: none; }
+  @media (max-width: 899px) { .gstam { bottom: 248px; } .gsplat { bottom: 264px; } }
+  @media (max-height: 500px) { .gstam, .gsplat { display: none; } }
+  .gspeed { position: fixed; inset: 0; pointer-events: none; z-index: 3; opacity: 0; transition: opacity .2s; background: repeating-conic-gradient(from 0deg at 50% 50%, rgba(255,255,255,.0) 0deg 5deg, rgba(255,255,255,.35) 5deg 5.6deg); -webkit-mask: radial-gradient(circle at 50% 50%, transparent 38%, #000 75%); mask: radial-gradient(circle at 50% 50%, transparent 38%, #000 75%); }
+  .smudge { position: fixed; inset: 0; pointer-events: none; z-index: 3; opacity: 0; background: radial-gradient(ellipse 40% 30% at 42% 38%, rgba(120,100,80,.35), transparent 70%); backdrop-filter: blur(2px); }
+  .gjoy { position: fixed; left: 18px; bottom: calc(100px + env(safe-area-inset-bottom)); width: 110px; height: 110px; border-radius: 50%; border: 3px solid var(--ink); background: rgba(255,255,255,.35); touch-action: none; }
+  .gjoy i { position: absolute; left: 50%; top: 50%; width: 46px; height: 46px; margin: -23px; border-radius: 50%; background: #fff; border: 3px solid var(--ink); }
+  .gbtns { position: fixed; right: 12px; bottom: calc(100px + env(safe-area-inset-bottom)); display: grid; grid-template-columns: repeat(4, 48px); gap: 6px; touch-action: none; }
+  .gbtns button { height: 44px; border: 2.5px solid var(--ink); border-radius: 12px; background: rgba(255,255,255,.9); font-weight: 900; font-size: 12px; }
+  .gmap { position: fixed; inset: 0; z-index: 8; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(20,18,24,.55); color: #fff; font-weight: 800; }
+  .gmap canvas { width: min(86vw, 70vh); height: auto; border: 4px solid var(--ink); border-radius: 50%; background: #8fe3e6; }
+  @media (min-width: 900px) { .gcard { right: 432px; } .gprompt, .ghint, .glock, .gdisc { left: calc((100vw - 432px) / 2); } }
+  @media (max-width: 899px) { .gcard:not(.closed) { left: 50%; right: auto; top: 50%; bottom: auto; transform: translate(-50%, -50%); z-index: 9; } .gcard.closed { display: none; } .gprompt { bottom: 200px; } .ghint { bottom: 250px; font-size: 12px; } .gind { bottom: 220px; } }
+  @media (max-height: 500px) { .gjoy { bottom: 88px; width: 90px; height: 90px; } .gbtns { bottom: 88px; grid-template-columns: repeat(8, 40px); } .gprompt { bottom: 146px; } .ghint { bottom: 190px; } .gind { display: none; } }
+</style>
+</head>
+<body>
+<canvas id="c" aria-label="Greg's 3D island"></canvas>
+<div id="loading"><div style="text-align:center"><p class="h">Greg's Island</p><p style="font-weight:800">Loading the greatest island in the pond...</p></div></div>
+
+<div class="top">
+  <div class="status panel"><button id="menuBtn" class="back" aria-label="Menu" style="font-weight:900;font-size:20px;background:none;border:0;cursor:pointer;padding:0 2px">☰</button><span class="badge live" style="font-size:10px">LIVE</span><span class="livedot" title="Live"></span><span class="txt" id="status">Greg is waking up...</span></div>
+  <div class="chips">
+    <button class="chip" id="chipViewers" title="People watching right now">👀 <span id="viewers">1</span> watching</button>
+    <button class="chip" id="chipFollow" aria-pressed="true">🎥 Follow Greg</button>
+    <button class="chip" id="chipMail">📬 <span id="mailN">0</span> notes</button>
+    <button class="chip" id="chipWorth">💰 <span id="worthChip">$0</span></button>
+    <button class="chip" id="chipSound" aria-pressed="false">🔈 Sounds</button>
+    <button class="chip" id="chipLofi" aria-pressed="false">🎧 Lo-fi</button>
+    <a class="chip" href="/golf/" style="text-decoration:none">⛳ Play his course</a>
+  </div>
+  <div class="needs panel" id="needs"></div>
+</div>
+<div id="say" class="bubble hide"></div>
+<a class="meter panel" id="meter" href="https://solscan.io/account/CNAg1pWXsyakdDr2XfVQqDWkdzY9mQpbYBTBxgc1oppf" target="_blank" rel="noopener" title="wallet value, live on Solana">
+  <div class="mt"><b>Greg's road to $1,000,000</b><span id="mPct">0%</span></div>
+  <div class="mbar"><i id="mFill"></i></div>
+  <div class="ms" id="mLine">SOL $0 + cards $0 = $0 · wallet value, live on Solana</div>
+</a>
+<div class="flyhud"><span class="chip" style="pointer-events:none">🪰 <b id="online">1</b> flies online</span><span class="chip" style="pointer-events:none">🪙 <b id="flyRent">0</b> fly rent</span><button class="chip" id="payBtn">Pay rent 🪙</button><button class="chip" id="camBtn">🐸 Greg cam</button><button class="chip" id="lqBtn">✨ HQ</button><button class="chip" id="askBtn">❓ Ask Greg</button></div>
+<div id="rentPop" class="rentpop">+1 🪙 rent</div>
+
+<section class="sheet panel" id="sheet" aria-label="Greg's stuff">
+  <div class="grab"></div>
+  <nav class="tabs" role="tablist">
+    <button class="tab" role="tab" data-tab="feed"><b>📓</b>Diary</button>
+    <button class="tab" role="tab" data-tab="wishes"><b>🎁</b>Wishes</button>
+    <button class="tab" role="tab" data-tab="works"><b>🎨</b>Works</button>
+    <button class="tab" role="tab" data-tab="money"><b>💰</b>Millions</button>
+    <button class="tab" role="tab" data-tab="mail"><b>✉️</b>Notes</button>
+  </nav>
+  <div class="body" id="body"></div>
+</section>
+
+<div class="modal" id="modal" role="dialog" aria-modal="true"><div class="panel halftone" style="background-color:var(--paper)"><button class="close" id="mclose" aria-label="Close">✕</button><div id="mbody"></div></div></div>
+<div class="toast panel" id="toast"></div>
+<div class="modal" id="menu"><div class="panel halftone" style="background-color:var(--paper);padding:16px;width:min(380px,100%);max-height:86dvh;overflow-y:auto">
+  <h2 style="font-family:var(--font-head);font-weight:400;font-size:32px;margin:0 0 10px">Greg the Frog</h2>
+  <p style="font-weight:700;margin:0 0 12px">An AI frog living on his own island. Everyone watching sees the same Greg, live.</p>
+  <div style="display:grid;gap:8px">
+    <a class="btn" href="https://x.com/gregthefrogfun" target="_blank" rel="noopener">Follow @gregthefrogfun on X</a>
+    <a class="btn alt" href="/golf/">⛳ Play his golf course</a>
+    <a class="btn alt" href="/journal/">📓 Greg's Journal</a>
+    <a class="btn alt" href="/legal/">Contact, privacy, terms</a>
+  </div>
+  <h3 style="font-family:var(--font-head);font-weight:400;font-size:22px;margin:14px 0 6px">Greg's wallet</h3>
+  <div class="entry" style="padding:8px;border:2.5px solid var(--ink);border-radius:12px;background:#fff"><code id="wAddr" style="word-break:break-all;font-size:11px">CNAg1pWXsyakdDr2XfVQqDWkdzY9mQpbYBTBxgc1oppf</code>
+    <div class="row" style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap"><button class="btn small alt" id="wCopy">Copy</button><a class="btn small alt" href="https://solscan.io/account/CNAg1pWXsyakdDr2XfVQqDWkdzY9mQpbYBTBxgc1oppf" target="_blank" rel="noopener">Solscan</a><span id="wBal" style="font-weight:900;align-self:center">… SOL</span></div></div>
+  <h3 style="font-family:var(--font-head);font-weight:400;font-size:22px;margin:14px 0 6px">Pay rent in SOL (optional)</h3>
+  <div style="display:flex;gap:6px"><button class="btn small" data-sol="0.01">0.01</button><button class="btn small" data-sol="0.05">0.05</button><button class="btn small" data-sol="0.1">0.1 SOL</button></div>
+  <p class="disc" style="font-size:11.5px;color:var(--muted);font-weight:700;margin:6px 0 0">A tip or rent for a virtual frog, sent from your own wallet (Phantom or Solflare). Optional. No returns, no rewards, not an investment. The free in-game "Pay rent" button works just as well for Greg's feelings.</p>
+  <h3 style="font-family:var(--font-head);font-weight:400;font-size:22px;margin:14px 0 6px">Card binder</h3>
+  <div id="binder" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px"></div>
+  <p class="disc" style="font-size:12px;color:var(--muted);font-weight:700;margin-top:12px">Welcome to Freg Island. Nothing here is financial advice.</p>
+</div></div>
+
+<script type="module" src="/js/ui.js"></script>
+</body>
+</html>
