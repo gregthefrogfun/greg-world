@@ -13,7 +13,7 @@ export const KEYMAP = {
     KeyZ: "legL", KeyX: "legR", KeyK: "mode", Digit1: "emote1", Digit2: "emote2", Digit3: "emote3", Digit4: "emote4",
   },
   map: { KeyM: "map", Escape: "map" },
-  menu: { Escape: "closeMenu", KeyH: "help", Slash: "help" },
+  menu: { KeyH: "help", Slash: "help" },
   typing: { Escape: "closeChat" },
 };
 // a key bound twice inside one context, or two keys fighting over a held action, is a conflict

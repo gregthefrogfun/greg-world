@@ -663,14 +663,15 @@ export function createWorld(canvas, { onReady, lowPower, onPick, onUserOrbit, on
     vT = Math.min(vT, Math.sqrt(2 * 1.6 * dist)); // brake into the stop
     const wantYaw = ad > 0.05 ? Math.atan2(ax, az) : null;
     if (wantYaw !== null) { let d0 = Math.atan2(Math.sin(wantYaw - greg.rotation.y), Math.cos(wantYaw - greg.rotation.y)); if (Math.abs(d0) > 1.0 && loco.v < 0.3) vT = 0; else vT *= Math.max(0.35, Math.cos(Math.min(1.2, Math.abs(d0)))); }
+    loco.vT = vT; loco.dist = dist; loco.ad = ad;
     loco.v += Math.max(-1.6 * dt, Math.min(2.0 * dt, vT - loco.v));
-    if (ad > 1e-4 && loco.v > 0) { const step = Math.min(ad, loco.v * dt), fx = Math.sin(greg.rotation.y), fz = Math.cos(greg.rotation.y); const mx = ax / ad, mz = az / ad; const bx = fx * 0.75 + mx * 0.25, bz = fz * 0.75 + mz * 0.25, bl = Math.hypot(bx, bz) || 1; greg.position.x += (bx / bl) * step; greg.position.z += (bz / bl) * step; }
+    if (ad > 1e-4 && loco.v > 0) { const step = Math.min(ad, loco.v * dt), fx = Math.sin(greg.rotation.y), fz = Math.cos(greg.rotation.y); const mx = ax / ad, mz = az / ad; const bx = fx * 0.75 + mx * 0.25, bz = fz * 0.75 + mz * 0.25, bl = Math.hypot(bx, bz) || 1; greg.position.x += (bx / bl) * step; greg.position.z += (bz / bl) * step; loco.step = step; loco.aim = [aimX, aimZ]; }
     { const hit = phys.raycast(new THREE.Vector3(greg.position.x, greg.position.y + 0.7, greg.position.z), DOWN, 1.4); const gy = hit && hit.normal.y > 0.7 ? hit.point.y : 0; greg.position.y += (gy - greg.position.y) * Math.min(1, dt * 8); }
     phys.moveCapsule("greg", tmpA.set(greg.position.x, greg.position.y + 0.5, greg.position.z), tmpB.set(greg.position.x, greg.position.y + 1.75, greg.position.z));
     gregSpeed = Math.hypot(greg.position.x - prev.x, greg.position.z - prev.z) / Math.max(dt, 1e-3);
     const moving = loco.v > 0.06; if (loco.was && !moving) loco.stopAt = t; loco.was = moving;
-    if (moving || (walking && dist > 0.05)) pose = "walk";
-    if (moving && wantYaw !== null) heading = wantYaw;
+    if (moving) pose = "walk";
+    if (wantYaw !== null && (moving || dist > 0.08)) heading = wantYaw;
     else if (sit) heading = sit[2];
     else if (pose === "golf") heading = Math.atan2(holeP.x - greg.position.x, holeP.z - greg.position.z);
     else if ((pose === "windup" || pose === "jab") && punchTarget) heading = Math.atan2(punchTarget.x - greg.position.x, punchTarget.z - greg.position.z);
@@ -815,7 +816,7 @@ export function createWorld(canvas, { onReady, lowPower, onPick, onUserOrbit, on
   }
   return {
     punch: (target, at) => { punchAt = at; punchTarget = target; },
-    hq, nav, phys, interactables, isl, greg, nest, espresso, debugOn, onEvent: (f) => eventHooks.push(f), rebuildPhysics, buildPhysicsNow,
+    _loco: () => ({ ...loco, path: loco.path?.length, tmp: [tmp.x, tmp.z], heading, rot: greg.rotation.y }), hq, nav, phys, interactables, isl, greg, nest, espresso, debugOn, onEvent: (f) => eventHooks.push(f), rebuildPhysics, buildPhysicsNow,
     nestSpawns: () => nest.userData.spawns.map((v) => nest.localToWorld(v.clone())), nestCenter: () => nest.localToWorld(new THREE.Vector3(0, 0.7, 0.4)),
     setNest: (n) => nest.userData.drawSign(n), gregPlan: (now) => (st ? gregPlan(now) : null), gregHeadY: () => greg.position.y + GREG_H * 0.92,
     setPickGate: (f) => (pickGate = f), renderer, setRenderOverride: (f) => (renderOverride = f), fps: () => lastFps,

@@ -401,6 +401,8 @@ export function startFlies(world, { input, hud, save, onCount, onRent, onUnpaidN
     const rr = Math.hypot(P0.x, P0.z); if (rr > R) { P0.x *= R / rr; P0.z *= R / rr; st.vel.x *= -0.3; st.vel.z *= -0.3; }
     if (P0.y > 18) { P0.y = 18; st.vel.y = Math.min(0, st.vel.y); }
     if (P0.y < -0.38) { P0.y = -0.38; st.vel.y = Math.abs(st.vel.y) * 0.4; } // water: no landing, gentle bounce
+    groundClamp(P0, st.vel);
+    if (P0.y < -2) spawnAtNest(false); // kill plane
 
     // remote flies
     let slot = 1; const g2 = world.gregPos();
@@ -463,6 +465,11 @@ export function startFlies(world, { input, hud, save, onCount, onRent, onUnpaidN
     document.body.classList.toggle("shielded", st.shield > 0 && pov && !third);
     sendState(now);
   });
+  // safety net: the island top is flat ground at y=0 (beach at -0.3); a fly can never end up below it
+  function groundClamp(p, v) {
+    const r = Math.hypot(p.x, p.z), floor = r < world.R ? 0 : r < world.R + 2 ? -0.3 : -1e9;
+    if (p.y < floor + RAD) { p.y = floor + RAD; if (v && v.y < 0) v.y = 0; return true; } return false;
+  }
   function flyMove(dt, wishDir) {
     const before = st.vel.length();
     const c = phys.moveSphere(st.pos, st.vel, RAD, dt, { bounce: 0.3, friction: 0.08 });
@@ -510,7 +517,7 @@ export function startFlies(world, { input, hud, save, onCount, onRent, onUnpaidN
     setMobile: (k, v) => { if (k === "up") mobileUp = v; if (k === "down") mobileDown = v; if (k === "boost") mobileBoost = v; },
     setSetting: (k, v) => { settings[k] = v; save.set("settings", settings); }, perch: () => (st.mode === "perch" ? takeoff() : tryPerch(true)), interact, emote, others, sid, room: () => room,
     // test hooks
-    rename, name: () => me.name, say,
+    rename, name: () => me.name, say, unstuck: () => { if (st.mode === "perch") { st.mode = "fly"; st.perchOn = null; } spawnAtNest(false); toast && toast("Back at the Fly Nest"); }, _clamp: groundClamp,
     _perchAt: perchAt, _spawn: spawnAtNest, _onP: onP,
   };
 }

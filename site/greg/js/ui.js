@@ -88,7 +88,8 @@ try {
     if (m === "map") { menuEl.classList.remove("show"); hud.openMap(); }
     if (m === "chat") { menuEl.classList.remove("show"); input.press("chat"); input.press("chat", false); }
     if (m === "sound") { setSound(prefs.sound === false); fillMenu(); }
-    if (m === "quality") { world.setLowQuality(!world.isLowQuality()); fillMenu(); } }));
+    if (m === "quality") { world.setLowQuality(!world.isLowQuality()); fillMenu(); }
+    if (m === "unstuck") { menuEl.classList.remove("show"); flies.unstuck(); } }));
   window.__openMenu = openMenu;
   window.__closeTop = closeTop;
   $("#payBtn").onclick = async () => { $("#payBtn").disabled = true; await flies.payRent(); audio.blip(); toast("Rent paid. Greg nods approvingly. 🪙"); setTimeout(() => ($("#payBtn").disabled = false), 60000); };
