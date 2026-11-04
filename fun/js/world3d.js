@@ -216,7 +216,7 @@ export function createWorld(canvas, { onReady, lowPower, onPick, onUserOrbit, on
     for (const [x, h] of [[-0.5, 0.45], [0, 0.6], [0.5, 0.38]]) { const cup = M(G.cyl(0.14, 0.06, h, 10), 0xffd23f, { emissive: 0.25 }); cup.position.set(x, 1.0 + h / 2 - 0.2, 0.1); shelf.add(cup); } }
 
   // home: lily pad + couch + TV + rug + lamp + art wall + posters
-  const homeG = new THREE.Group(); isl.add(homeG);
+  const homeG = new THREE.Group(); // old open-air home set: replaced by the living room annex of Greg HQ (not added)
   const deck = M(G.cyl(4.2, 4.2, 0.14, 24), 0xc48c55); at(deck, P.home.x + 0.4, 0.07, P.home.z + 0.6); homeG.add(deck); pick(deck, "home");
   const rug = M(G.cyl(1.2, 1.2, 0.04, 18), 0xe85d75, { outline: false }); at(rug, P.home.x + 1.6, 0.16, P.home.z - 0.4); homeG.add(rug);
   const couch = new THREE.Group(); at(couch, P.home.x + 1.6, 0.14, P.home.z - 1.6, 0); homeG.add(couch); pick(couch, "home");
@@ -231,13 +231,15 @@ export function createWorld(canvas, { onReady, lowPower, onPick, onUserOrbit, on
   const diaryBook = new THREE.Group(); at(diaryBook, P.home.x + 0.2, 0.2, P.home.z + 2.2); homeG.add(diaryBook); pick(diaryBook, "diary");
   { const db = M(G.box(0.6, 0.14, 0.45), 0xe85d75); db.position.y = 0.07; diaryBook.add(db); }
   // art wall with dream posters (canvas textures, original art)
-  const artWall = new THREE.Group(); at(artWall, P.art.x, 0, P.art.z + 1.4, Math.PI); isl.add(artWall); pick(artWall, "art");
+  // keep these clear of the HQ living room annex: nudge them along HQ's local axes
+  const hqX = [Math.cos(HQ.ry), -Math.sin(HQ.ry)], hqZ = [Math.sin(HQ.ry), Math.cos(HQ.ry)];
+  const artWall = new THREE.Group(); at(artWall, P.art.x - 0.4 + hqZ[0] * 1.8 + hqX[0] * 1.0, 0, P.art.z + 1.9 + hqZ[1] * 1.8 + hqX[1] * 1.0, Math.PI); isl.add(artWall); pick(artWall, "art");
   { const wall = M(G.box(5.2, 2.6, 0.25), 0xfff3c4); wall.position.y = 1.3; artWall.add(wall);
     const posters = [["✈", "#4ab8ff", "FLY"], ["⛳", "#3ea24a", "ST ANDREWS"], ["🧜", "#7a5cff", "THE OCEAN"], ["🏛", "#f28a2e", "THE LOUVRE"]];
     posters.forEach(([e, c, t], i) => { const f = new THREE.Mesh(G.box(1.0, 1.25, 0.08), toon(0x5a3a1e)); f.position.set(-1.8 + i * 1.2, 1.4, -0.16); artWall.add(f);
       const pic = new THREE.Mesh(new THREE.PlaneGeometry(0.86, 1.1), new THREE.MeshBasicMaterial({ map: posterTex(e, c, t) })); pic.position.set(-1.8 + i * 1.2, 1.4, -0.21); pic.rotation.y = Math.PI; artWall.add(pic); }); }
   // kitchen
-  const kitchen = new THREE.Group(); at(kitchen, P.kitchen.x - 0.6, 0, P.kitchen.z + 1.6, Math.PI); isl.add(kitchen); pick(kitchen, "kitchen");
+  const kitchen = new THREE.Group(); at(kitchen, P.kitchen.x - 0.6 + hqX[0] * 3.2, 0, P.kitchen.z + 1.6 + hqX[1] * 3.2, Math.PI); isl.add(kitchen); pick(kitchen, "kitchen");
   const steam = [];
   { const floor = M(G.box(4.2, 0.12, 2.6), 0xe9e3d0, { outline: false }); floor.position.set(0, 0.06, -0.6); kitchen.add(floor);
     const counter = M(G.box(2.6, 0.9, 0.7), 0xffffff); counter.position.set(-0.3, 0.45, 0); kitchen.add(counter);
@@ -312,7 +314,7 @@ export function createWorld(canvas, { onReady, lowPower, onPick, onUserOrbit, on
   { const pole = M(G.cyl(0.06, 0.06, 2.2, 6), 0x8a5a33, { ot: 0.5 }); pole.position.y = 1.1; sign.add(pole);
     [["GOLF", -0.8], ["TOWN", 0.6], ["HOME", 2.4], ["BEACH", 3.8]].forEach(([t, r], i) => { const b = M(G.box(0.9, 0.22, 0.06), 0xb57a45, { ot: 0.4 }); b.position.set(0, 1.4 + i * 0.25, 0); b.rotation.y = r; sign.add(b); }); }
   // mailbox (fills with notes)
-  const mailbox = new THREE.Group(); at(mailbox, P.mailbox.x - 0.7, 0, P.mailbox.z + 0.3, 0.6); isl.add(mailbox); pick(mailbox, "mailbox");
+  const mailbox = new THREE.Group(); at(mailbox, P.mailbox.x - 0.1, 0, P.mailbox.z + 0.3, 0.6); isl.add(mailbox); pick(mailbox, "mailbox");
   const mpost = M(G.box(0.14, 1.1, 0.14), 0x8a5a33, { ot: 0.7 }); mpost.position.y = 0.55; mailbox.add(mpost);
   const mbox = M(G.box(0.9, 0.6, 0.6), 0x4ab8ff); mbox.position.y = 1.35; mailbox.add(mbox);
   const mflag = M(G.box(0.06, 0.4, 0.18), 0xff4a3a, { ot: 0.6 }); mflag.position.set(0.5, 1.55, 0); mailbox.add(mflag);
@@ -348,7 +350,7 @@ export function createWorld(canvas, { onReady, lowPower, onPick, onUserOrbit, on
     const top = M(G.box(3.4, 0.4, 0.3), 0xc0392b); top.position.set(0, 2.8, -0.7); stage.add(top); const spot = M(G.cyl(0.15, 0.25, 0.4, 8), 0x333333); spot.position.set(1.8, 2.2, 1.2); spot.rotation.x = 0.8; stage.add(spot); }
   const careerProps = { bodybuilder: gym, footballer: pitch, actor: stage };
   // graded card slabs (only the wallet's own Collector Crypt NFT images; empty stands until the first pull)
-  const slabG = new THREE.Group(); at(slabG, P.home.x + 4.6, 0, P.home.z - 2.4, -0.6); isl.add(slabG);
+  const slabG = new THREE.Group(); { const sp = hq.localToWorld(new THREE.Vector3(7.0, 0, 1.55)); at(slabG, sp.x, 0, sp.z, hq.rotation.y + Math.PI); slabG.scale.setScalar(0.6); } isl.add(slabG);
   { const shelfB = M(G.box(3.6, 1.0, 0.8), 0x2b2540); shelfB.position.y = 0.5; slabG.add(shelfB); const spot = new THREE.Mesh(new THREE.ConeGeometry(1.6, 2.6, 16, 1, true), new THREE.MeshBasicMaterial({ color: 0xfff6c9, transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthWrite: false })); spot.position.y = 2.3; slabG.add(spot); }
   const slabItems = new THREE.Group(); slabG.add(slabItems);
   const texLoader = new THREE.TextureLoader(); texLoader.setCrossOrigin("anonymous");
@@ -381,8 +383,7 @@ export function createWorld(canvas, { onReady, lowPower, onPick, onUserOrbit, on
 
   // GLB slots: lily pad, shed, synth, flag (hole 1), piano
   const slots = {
-    home: { pos: [P.home.x - 0.6, 0.14, P.home.z + 0.8], h: 0.6, w: 3.6, rot: 0.4, file: "lilypad.glb", fallback: () => lilyFallback() },
-    shed: { pos: [P.shed.x + 2.6, 0, P.shed.z - 1.0], h: 5.6, rot: -1.2, file: "shed.glb", fallback: () => shedFallback() },
+    shed: { pos: [P.shed.x + 4.0, 0, P.shed.z - 1.6], h: 5.6, rot: -1.2, file: "shed.glb", fallback: () => shedFallback() },
     synth: { pos: [P.shed.x - 0.4, 0, P.shed.z + 1.3], h: 1.15, rot: -2.2, file: "synth.glb", fallback: () => synthFallback() },
     piano: { pos: [P.shed.x - 0.2, 0, P.shed.z - 1.5], h: 1.6, rot: 0.1, file: "piano.glb", fallback: () => pianoFallback() },
     flag: { pos: [holeP.x, 0, holeP.z], h: 2.6, rot: 0.3, file: "flag.glb", fallback: () => flagFallback() },
@@ -1148,7 +1149,9 @@ function buildHQ(SC, screenTex, renderer) {
   // floor: grass slab (raised 2 cm so it never z-fights the island)
   const floor = new THREE.Mesh(G.box(W, 0.06, D), toon(0xffffff, tileTex("grass", renderer), { rep: 3 })); floor.position.y = 0.03; g.add(floor);
   // back wall (desk + sign), right wall, front wall with a wide doorway
-  wall(W, H, 0, H / 2, -D / 2); wall(D, H, W / 2, H / 2, 0, Math.PI / 2);
+  wall(W, H, 0, H / 2, -D / 2);
+  // right wall shared with the living room annex: doorway at z -0.1..1.7
+  wall(3.4, H, W / 2, H / 2, -1.8, Math.PI / 2); wall(1.8, H, W / 2, H / 2, 2.6, Math.PI / 2); wall(1.8, H - 2.7, W / 2, 2.7 + (H - 2.7) / 2, 0.8, Math.PI / 2);
   wall(2.4, H, -W / 2 + 1.2, H / 2, D / 2); wall(2.2, H, W / 2 - 1.1, H / 2, D / 2); wall(3.4, H - 2.9, 0.1, 2.9 + (H - 2.9) / 2, D / 2);
   // sea wall: low sill, big window with mullions and an arched top
   const sill = new THREE.Mesh(G.box(T, 0.55, D), wallM); outline(sill, 0.6); sill.position.set(-W / 2, 0.275, 0); g.add(sill);
@@ -1253,7 +1256,7 @@ function buildHQ(SC, screenTex, renderer) {
   // ----- exterior: cream siding, gable roof with tiles, trims, a porch with steps, posts, awning and a GREG HQ sign -----
   { const cream = 0xf1e4c6, trim = 0xffffff, roofC = 0x3b6fb6;
     const clad = (w, h, x, y, z, ry = 0) => { const m = M(G.box(w, h, 0.05), cream, { ot: 0.5 }); m.position.set(x, y, z); m.rotation.y = ry; g.add(m); };
-    clad(W + 0.1, H, 0, H / 2, -D / 2 - 0.115); clad(D + 0.1, H, W / 2 + 0.115, H / 2, 0, Math.PI / 2);
+    clad(W + 0.1, H, 0, H / 2, -D / 2 - 0.115); 
     clad(2.4, H, -W / 2 + 1.2, H / 2, D / 2 + 0.115); clad(2.2, H, W / 2 - 1.1, H / 2, D / 2 + 0.115); clad(3.4, H - 2.9, 0.1, 2.9 + (H - 2.9) / 2, D / 2 + 0.115);
     for (const [x, z] of [[-W / 2, -D / 2], [W / 2, -D / 2], [-W / 2, D / 2], [W / 2, D / 2]]) { const c = M(G.box(0.22, H + 0.1, 0.22), trim, { ot: 0.5 }); c.position.set(x + Math.sign(x) * 0.02, H / 2, z + Math.sign(z) * 0.02); g.add(c); }
     // door frame
@@ -1281,6 +1284,42 @@ function buildHQ(SC, screenTex, renderer) {
     const sg = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 0.55), new THREE.MeshBasicMaterial({ map: sTex })); sg.position.set(0.1, 3.35, D / 2 + 0.15); g.add(sg);
     // outside lamp by the door
     const lamp = new THREE.Mesh(G.sph(0.1, 10, 8), toon(0xffe6a6, null, { emissive: 1 })); lamp.position.set(2.3, 2.3, D / 2 + 0.2); g.add(lamp); }
+  // ----- living room annex (x 4..8.6, z -3.5..2.2): sofa against the shared wall facing a TV, coffee table on a rug,
+  // bookshelf on the back wall, floor lamp, plants, posters at eye level, card slab shelf. Greg sleeps on the sofa.
+  { const AX0 = W / 2, AX1 = W / 2 + 4.6, AZ0 = -D / 2, AZ1 = 2.2, AW = AX1 - AX0, AD = AZ1 - AZ0, cx = (AX0 + AX1) / 2, cz = (AZ0 + AZ1) / 2;
+    const woodF = new THREE.Mesh(G.box(AW, 0.06, AD), toon(0xffffff, tileTex("wood", renderer), { rep: 3 })); woodF.position.set(cx, 0.03, cz); g.add(woodF);
+    const warm = canvasTex(256, 256, (x) => { x.fillStyle = "#f3e2c0"; x.fillRect(0, 0, 256, 256); x.fillStyle = "rgba(160,120,70,.12)"; for (let i = 0; i < 16; i++) x.fillRect(i * 16, 0, 2, 256); }); warm.wrapS = warm.wrapT = THREE.RepeatWrapping;
+    const wM = toon(0xffffff, warm, { rep: 2 }); const aw = (w, h, x, y, z, ry = 0) => { const m = new THREE.Mesh(G.box(w, h, T), wM); outline(m, 0.6); m.position.set(x, y, z); m.rotation.y = ry; g.add(m); };
+    aw(AW + T, H, cx, H / 2, AZ0);                                   // back wall
+    aw(AD, H, AX1, H / 2, cz, Math.PI / 2);                          // right wall (window below)
+    aw(1.6, H, AX0 + 0.8, H / 2, AZ1); aw(1.4, H, AX1 - 0.7, H / 2, AZ1); aw(1.6, H - 2.7, AX0 + 2.4, 2.7 + (H - 2.7) / 2, AZ1); // front wall + door
+    const rf = M(G.box(AW + 0.5, 0.18, AD + 0.5), 0x3b6fb6); rf.position.set(cx, H + 0.09, cz); g.add(rf);
+    const trimR = M(G.box(AW + 0.6, 0.12, AD + 0.6), 0xffffff, { ot: 0.4 }); trimR.position.set(cx, H + 0.22, cz); g.add(trimR);
+    for (const z of [-1.2, 0.6]) { const wn = new THREE.Mesh(G.box(0.04, 1.1, 1.0), new THREE.MeshBasicMaterial({ color: 0xcdeeff, transparent: true, opacity: 0.25, depthWrite: false })); wn.position.set(AX1 + 0.01, 1.7, z); g.add(wn); const fr = M(G.box(0.08, 1.2, 1.1), 0xffffff, { ot: 0.4 }); fr.position.set(AX1 + 0.06, 1.7, z); fr.scale.set(1, 1, 1); g.add(fr); }
+    // sofa: back against the shared wall, seat centre at x 4.8 (Greg's home spot), facing +x
+    const sofa = new THREE.Group(); sofa.position.set(AX0 + 0.75, 0.06, -1.8); g.add(sofa);
+    { const c1 = 0x6a4cff, c2 = 0x5a3ee6; const base = M(G.box(0.9, 0.42, 2.0), c1); base.position.set(0.05, 0.26, 0); sofa.add(base); const back = M(G.box(0.25, 0.6, 2.0), c2); back.position.set(-0.36, 0.72, 0); sofa.add(back); for (const s2 of [-1, 1]) { const arm = M(G.box(0.9, 0.55, 0.22), c2); arm.position.set(0.05, 0.4, s2 * 1.0); sofa.add(arm); } for (const z2 of [-0.48, 0.48]) { const cu = M(G.box(0.7, 0.14, 0.9), 0x7d62ff, { ot: 0.4 }); cu.position.set(0.1, 0.54, z2); sofa.add(cu); } const pil = M(G.box(0.14, 0.32, 0.32), 0xffd23f, { ot: 0.3 }); pil.position.set(-0.18, 0.75, 0.62); pil.rotation.x = 0.2; sofa.add(pil); }
+    // TV on the opposite wall, low cabinet under it
+    const cab = M(G.box(0.45, 0.5, 1.6), 0x6b4226); cab.position.set(AX1 - 0.32, 0.31, -1.8); g.add(cab);
+    const tvF = M(G.box(0.06, 0.8, 1.4), 0x15151c); tvF.position.set(AX1 - 0.16, 1.45, -1.8); g.add(tvF);
+    const tvCv = document.createElement("canvas"); tvCv.width = 512; tvCv.height = 288; const tvTex = new THREE.CanvasTexture(tvCv); tvTex.colorSpace = THREE.SRGBColorSpace;
+    { const x = tvCv.getContext("2d"); const gr = x.createLinearGradient(0, 0, 0, 288); gr.addColorStop(0, "#1b2a55"); gr.addColorStop(1, "#0d1322"); x.fillStyle = gr; x.fillRect(0, 0, 512, 288); x.fillStyle = "#ffd23f"; x.font = "900 34px system-ui"; x.textAlign = "center"; x.fillText("Greg TV", 256, 130); x.fillStyle = "#cfe0ff"; x.font = "700 20px system-ui"; x.fillText("Land in front and press F to watch", 256, 170); }
+    const tvS = new THREE.Mesh(new THREE.PlaneGeometry(1.32, 0.74), new THREE.MeshBasicMaterial({ map: tvTex })); tvS.position.set(AX1 - 0.2, 1.45, -1.8); tvS.rotation.y = -Math.PI / 2; g.add(tvS);
+    // coffee table on a rug between them, with the card binder on it
+    const rugTex2 = canvasTex(256, 160, (x) => { x.fillStyle = "#e85d75"; x.fillRect(0, 0, 256, 160); x.strokeStyle = "#fff3c4"; x.lineWidth = 8; x.strokeRect(14, 14, 228, 132); x.fillStyle = "#ffd23f"; for (let i = 0; i < 6; i++) { x.beginPath(); x.arc(40 + i * 35, 80, 8, 0, 7); x.fill(); } });
+    const rug2 = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 1.8), new THREE.MeshBasicMaterial({ map: rugTex2 })); rug2.rotation.x = -Math.PI / 2; rug2.rotation.z = Math.PI / 2; rug2.position.set(AX0 + 2.2, 0.065, -1.8); decal(rug2, 2); g.add(rug2);
+    const ct = new THREE.Group(); ct.position.set(AX0 + 2.15, 0.06, -1.8); g.add(ct); { const top = M(G.box(0.6, 0.06, 1.1), 0xb57a45); top.position.y = 0.42; ct.add(top); for (const [lx, lz] of [[-0.25, -0.48], [0.25, -0.48], [-0.25, 0.48], [0.25, 0.48]]) { const l = M(G.cyl(0.025, 0.025, 0.4, 6), 0x6b4226, { outline: false }); l.position.set(lx, 0.2, lz); ct.add(l); } const bk = M(G.box(0.28, 0.06, 0.36), 0x6a4cff, { ot: 0.3 }); bk.position.set(0.05, 0.48, 0.2); bk.rotation.y = 0.3; ct.add(bk); const cupT = new THREE.Mesh(cupGeo(0.1, 0.045), toon(0xffffff, null, { side: THREE.DoubleSide })); outline(cupT, 0.3); cupT.position.set(-0.1, 0.45, -0.25); ct.add(cupT); }
+    // bookshelf on the back wall
+    const bsh = new THREE.Group(); bsh.position.set(AX0 + 3.3, 0.06, AZ0 + 0.28); g.add(bsh);
+    { const fr = M(G.box(1.4, 2.0, 0.36), 0x8a5a33); fr.position.y = 1.0; bsh.add(fr); const bks = new THREE.InstancedMesh(G.box(0.08, 0.32, 0.24), toon(0xffffff), 36); const d = new THREE.Object3D(); for (let i = 0; i < 36; i++) { const row = Math.floor(i / 12); d.position.set(-0.6 + (i % 12) * 0.1, 0.34 + row * 0.6, 0.06); d.scale.y = 0.85 + ((i * 7) % 4) * 0.06; d.updateMatrix(); bks.setMatrixAt(i, d.matrix); bks.setColorAt(i, new THREE.Color([0xe85d75, 0x4ab8ff, 0xffd23f, 0x3ea24a, 0x7a5cff, 0xf28a2e][i % 6])); } outline(bks, 0.3); bsh.add(bks); }
+    // floor lamp in the corner, plants, posters at eye level (1.6 m) on the back wall
+    { const pl = M(G.cyl(0.02, 0.02, 1.5, 6), 0x2a2a33, { ot: 0.3 }); pl.position.set(AX0 + 0.4, 0.81, AZ0 + 0.4); g.add(pl); const sh2 = M(G.cyl(0.18, 0.28, 0.32, 12), 0xffe6a6, { emissive: 0.6 }); sh2.position.set(AX0 + 0.4, 1.6, AZ0 + 0.4); g.add(sh2); const ba = M(G.cyl(0.16, 0.18, 0.05, 12), 0x2a2a33, { ot: 0.3 }); ba.position.set(AX0 + 0.4, 0.085, AZ0 + 0.4); g.add(ba); }
+    for (const [px, pz] of [[AX1 - 0.4, AZ1 - 0.45], [AX1 - 0.4, AZ0 + 0.45]]) { const pot = M(G.cyl(0.2, 0.15, 0.36, 10), 0xf0ece4); pot.position.set(px, 0.24, pz); g.add(pot); const lf = M(new THREE.IcosahedronGeometry(0.32, 0), 0x3fae4a); lf.position.set(px, 0.65, pz); g.add(lf); }
+    const posters = [["ASK THE UNIVERSE", "#2a3a8a"], ["1,000,000 OR BUST", "#c0392b"]];
+    posters.forEach(([txt, col], i) => { const tx = canvasTex(256, 340, (x) => { x.fillStyle = col; x.fillRect(0, 0, 256, 340); x.fillStyle = "#fff6dc"; x.fillRect(12, 12, 232, 316); x.fillStyle = col; x.beginPath(); x.arc(128, 130, 70, 0, 7); x.fill(); x.fillStyle = "#5cc24a"; x.beginPath(); x.ellipse(128, 150, 50, 40, 0, 0, 7); x.fill(); x.fillStyle = "#fff"; for (const s3 of [-1, 1]) { x.beginPath(); x.arc(128 + s3 * 22, 112, 13, 0, 7); x.fill(); } x.fillStyle = "#141218"; for (const s3 of [-1, 1]) { x.beginPath(); x.arc(128 + s3 * 22, 114, 6, 0, 7); x.fill(); } x.font = "900 22px system-ui"; x.textAlign = "center"; const w2 = txt.split(" "); let l1 = "", ly = 250; for (const w of w2) { if (x.measureText(l1 + w).width > 210) { x.fillText(l1, 128, ly); ly += 26; l1 = ""; } l1 += w + " "; } x.fillText(l1, 128, ly); });
+      const fr = M(G.box(0.62, 0.8, 0.04), 0x2b2540, { ot: 0.3 }); fr.position.set(AX0 + 0.98 + i * 0.8, 1.65, AZ0 + 0.13); g.add(fr); const pp = new THREE.Mesh(new THREE.PlaneGeometry(0.56, 0.74), new THREE.MeshBasicMaterial({ map: tx })); pp.position.set(fr.position.x, 1.65, AZ0 + 0.16); g.add(pp); });
+    g.userData.tv = { mesh: tvS, cv: tvCv, tex: tvTex };
+  }
   g.userData.chair = chair; g.userData.mugSteam = mugSteam; g.userData.mug = mug;
   // Greg's diary on the desk (open book with a red ribbon)
   const diary = new THREE.Group(); diary.position.set(-1.15, 0.84, -2.4); diary.rotation.y = 0.25; g.add(diary);
@@ -1290,6 +1329,7 @@ function buildHQ(SC, screenTex, renderer) {
     const rib = M(G.box(0.012, 0.004, 0.16), 0xc0392b, { outline: false }); rib.position.set(0.02, 0.04, 0.15); diary.add(rib); }
   g.userData.interactables = [
     { id: "hq_diary", obj: diary, r: 0.6, prompt: "Read Greg's diary", kind: "diary" },
+    { id: "hq_tv", obj: g.userData.tv.mesh, r: 1.6, prompt: "Watch Greg TV", kind: "tv" },
     ...Object.entries(g.userData.screens).map(([k, sc]) => ({ id: "hq_screen_" + k, obj: sc.mesh, r: 0.7, prompt: "Open the " + ({ charts: "charts", tweets: "tweets", pump: "pump.fun", nfts: "NFT" }[k]) + " screen", kind: "screen", screen: k })),
     { id: "hq_mug", obj: mug, r: 0.5, prompt: "Sip Greg's coffee", kind: "coffee" },
     { id: "hq_sign", obj: g, r: 0, prompt: "", kind: "none" },

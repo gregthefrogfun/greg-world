@@ -99,6 +99,7 @@ try {
   $("#lqBtn").onclick = () => { const v = !world.isLowQuality(); world.setLowQuality(v); $("#lqBtn").textContent = v ? "⚡ Low" : "✨ HQ"; };
   $("#camBtn").onclick = () => { const p = !flies.isPov(); flies.setPov(p); $("#camBtn").textContent = p ? "🐸 Greg cam" : "🪰 Fly cam"; };
 } catch (e) { console.error("flies", e); }
+try { Object.defineProperty(window, "__gregSettings", { get: () => store.settings }); } catch {}
 window.__greg = { world, get flies() { return flies; }, get input() { return window.__gregInput; } };
 
 // ---------- $1M meter (server-cached wallet value, pushed to everyone over Realtime) ----------
